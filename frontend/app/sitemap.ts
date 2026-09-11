@@ -3,7 +3,7 @@ import type { MetadataRoute } from 'next';
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: 'https://policyengine.org/us/georgia-2026-tax-changes',
+      url: 'https://policyengine.org/us/co-initiative-195',
       lastModified: new Date(),
       changeFrequency: 'weekly',
       priority: 1,

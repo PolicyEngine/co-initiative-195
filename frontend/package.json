@@ -1,10 +1,10 @@
 {
-  "name": "georgia-2026-tax-changes-calculator",
+  "name": "co-initiative-195",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3010",
-    "build": "rm -rf ../node_modules && ln -s frontend/node_modules ../node_modules && next build --webpack && rm -rf ../.next && cp -R .next ../.next",
+    "build": "rm -rf ../node_modules && (ln -s frontend/node_modules ../node_modules || true) && next build --webpack && rm -rf ../.next && cp -R .next ../.next",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run"
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
     "@tailwindcss/postcss": "^4.2.4",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^20.11.5",

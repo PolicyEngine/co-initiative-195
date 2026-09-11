@@ -12,20 +12,22 @@ const inter = Inter({
   display: 'swap',
 });
 
-const SITE_URL = 'https://policyengine.org/us/georgia-2026-tax-changes';
+const SITE_URL = 'https://policyengine.org/us/co-initiative-195';
+
+const TITLE = 'Colorado Initiative 195 (Amendment 87) impact dashboard';
+const DESCRIPTION =
+  'Estimate how Colorado Initiative 195 (Amendment 87), which would replace the 4.4% flat income tax with six graduated brackets starting tax year 2027, would affect your household, statewide revenue, and each congressional district.';
 
 export const metadata: Metadata = {
-  title: 'Georgia 2026 Tax Changes Calculator',
-  description:
-    "See how Georgia's 2026 tax changes (HB463: 4.99% flat rate, higher standard deduction and dependent exemption, new overtime + tip exclusions) affect your household and the state.",
+  title: TITLE,
+  description: DESCRIPTION,
   metadataBase: new URL(SITE_URL),
   alternates: {
     canonical: SITE_URL,
   },
   openGraph: {
-    title: 'Georgia 2026 Tax Changes Calculator',
-    description:
-      "See how Georgia's 2026 tax changes (HB463: 4.99% flat rate, higher standard deduction and dependent exemption, new overtime + tip exclusions) affect your household and the state.",
+    title: TITLE,
+    description: DESCRIPTION,
     url: SITE_URL,
     siteName: 'PolicyEngine',
     type: 'website',
@@ -33,9 +35,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Georgia 2026 Tax Changes Calculator',
-    description:
-      "See how Georgia's 2026 tax changes (HB463: 4.99% flat rate, higher standard deduction and dependent exemption, new overtime + tip exclusions) affect your household and the state.",
+    title: TITLE,
+    description: DESCRIPTION,
   },
   other: {
     'theme-color': '#2C7A7B', // CSS var not supported in meta tags, matches --theme-color
