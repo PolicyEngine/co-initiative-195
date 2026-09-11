@@ -1,8 +1,8 @@
 .PHONY: dev dev-frontend
-.PHONY: build test lint clean install
-.PHONY: pipeline pipeline-districts
+.PHONY: build test test-python lint clean install
+.PHONY: pipeline pipeline-districts example-households
 
-# Python module: sc_tax_calc (South Carolina 2026 tax changes)
+# Python module: co_tax_calc (Colorado Initiative 195 / Amendment 87)
 
 # Port selection helper - finds the first available port in 4000-4100
 define find_port
@@ -30,6 +30,10 @@ build:
 test:
 	cd frontend && npm run test
 
+# Python tests (schema + reform unit tests)
+test-python:
+	.venv/Scripts/python.exe -m pytest tests
+
 lint:
 	cd frontend && npm run lint
 
@@ -37,10 +41,14 @@ clean:
 	cd frontend && if exist .next rmdir /s /q .next
 	cd frontend && if exist node_modules rmdir /s /q node_modules
 
-# Regenerate aggregate data from the sc_tax_calc microsimulation
+# Regenerate statewide aggregate CSVs on Modal (TY2027, CO.h5)
 pipeline:
-	python scripts/pipeline.py
+	modal run scripts/modal_pipeline.py
 
-# Regenerate South Carolina congressional-district CSV (placeholder version)
+# Regenerate the CO-01..CO-08 congressional-district CSV on Modal
 pipeline-districts:
-	python scripts/generate_district_csv.py
+	modal run scripts/modal_district_pipeline.py
+
+# Regenerate example_households.json locally (no Modal)
+example-households:
+	.venv/Scripts/python.exe scripts/compute_example_households.py
