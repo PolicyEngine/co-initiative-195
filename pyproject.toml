@@ -1,11 +1,16 @@
 [project]
-name = "georgia-2026-tax-changes"
+name = "co-initiative-195"
 version = "1.0.0"
-description = "Georgia 2026 tax changes calculator and data pipeline (HB463: lower flat rate, higher standard deduction + dependent exemption, new overtime/tip exclusions)"
+description = "Colorado Initiative 195 (Amendment 87) dashboard: graduated income tax calculator and data pipeline (six brackets replacing the 4.4% flat tax, effective TY2027)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.15"
 dependencies = [
-    "policyengine-us>=1.150.0",
+    # Exact pin: first release containing PR #9431 (Colorado Initiative
+    # 195 graduated income tax contributed reform). Mirrored as
+    # POLICYENGINE_US_PIN in co_tax_calc/reforms.py,
+    # scripts/modal_pipeline.py, and scripts/modal_district_pipeline.py.
+    # Keep all four in sync.
+    "policyengine-us==1.825.0",
     "numpy>=1.24.0",
 ]
 
@@ -13,6 +18,7 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "modal>=1.0",
 ]
 
 [build-system]
@@ -26,4 +32,4 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ga_tax_calc"]
+packages = ["co_tax_calc"]

@@ -1,18 +1,22 @@
-"""Aggregate impact calculations for the Georgia 2026 tax changes (HB463).
+"""Aggregate impact calculations for Colorado Initiative 195 (Amendment 87).
 
-PolicyEngine-US current law already includes HB463. This module
-compares current law to an inverse reform that restores the pre-HB463
-parameters, so impact is ``current_law - pre_hb463``.
+Direction is FORWARD: baseline = current law (4.4% flat tax), reform =
+Initiative 195 graduated schedule, so every change is
+``reform - baseline``. Negative household net-income change means the
+household pays more tax under the initiative; positive revenue impact
+means the state collects more.
 """
 
 import numpy as np
 from policyengine_us import Microsimulation
 
-from .reforms import create_ga_reverted_reform
+from .reforms import create_co_reform
 
+# Colorado state-level dataset on HuggingFace.
+CO_DATASET = "hf://policyengine/policyengine-us-data/states/CO.h5"
 
-# Georgia state-level dataset on HuggingFace.
-GA_DATASET = "hf://policyengine/policyengine-us-data/states/GA.h5"
+# Initiative 195's first tax year.
+DEFAULT_YEAR = 2027
 
 # Intra-decile bounds and labels (same as app-v2)
 _INTRA_BOUNDS = [-np.inf, -0.05, -1e-3, 1e-3, 0.05, np.inf]
@@ -24,51 +28,74 @@ _INTRA_LABELS = [
     "Gain more than 5%",
 ]
 
+# Household-AGI bands for income_brackets.csv. Extend past $1M so all
+# six Initiative 195 brackets are visible.
+INCOME_BRACKETS = [
+    (0, 25_000, "$0 - $25k"),
+    (25_000, 50_000, "$25k - $50k"),
+    (50_000, 75_000, "$50k - $75k"),
+    (75_000, 100_000, "$75k - $100k"),
+    (100_000, 200_000, "$100k - $200k"),
+    (200_000, 500_000, "$200k - $500k"),
+    (500_000, 750_000, "$500k - $750k"),
+    (750_000, 1_000_000, "$750k - $1M"),
+    (1_000_000, float("inf"), "$1M+"),
+]
+
 
 def _poverty_metrics(baseline_rate: float, reform_rate: float):
-    """Return rate change and percent change for a poverty metric.
+    """Return (rate change, percent change) for a poverty metric.
 
-    ``baseline_rate`` is the pre-HB463 rate (sim with revert reform
-    applied); ``reform_rate`` is the current-law rate (sim with no
-    reform). The returned change matches the income-impact sign
-    convention: positive when current law improves the metric for
-    households (i.e. reduces poverty).
+    ``rate_change = reform - baseline`` percentage points: negative
+    means poverty falls under Initiative 195. ``percent_change`` is
+    relative to the baseline (current-law) rate.
     """
-    rate_change = baseline_rate - reform_rate
+    rate_change = reform_rate - baseline_rate
     percent_change = (
-        rate_change / reform_rate * 100 if reform_rate > 0 else 0.0
+        rate_change / baseline_rate * 100 if baseline_rate > 0 else 0.0
     )
     return rate_change, percent_change
 
 
-def calculate_aggregate_impact(year: int = 2026) -> dict:
-    """Calculate the Georgia aggregate impact of HB463.
+def calculate_aggregate_impact(year: int = DEFAULT_YEAR) -> dict:
+    """Calculate the Colorado statewide impact of Initiative 195.
 
     Args:
-        year: Tax year (default 2026).
+        year: Tax year (default 2027, the initiative's first year).
 
     Returns:
         Dictionary with budget, decile, intra_decile, poverty, and
-        income-bracket fields. All money amounts are current law minus
-        pre-HB463 law.
+        income-bracket fields. All change amounts are
+        ``reform - baseline`` (Initiative 195 minus current law).
     """
-    reform = create_ga_reverted_reform()
+    reform = create_co_reform()
 
-    # Baseline = pre-HB463 parameters. Reform = current law.
-    sim_baseline = Microsimulation(dataset=GA_DATASET, reform=reform)
-    sim_reform = Microsimulation(dataset=GA_DATASET)
+    # Baseline = current law (flat 4.4%). Reform = Initiative 195.
+    sim_baseline = Microsimulation(dataset=CO_DATASET)
+    sim_reform = Microsimulation(dataset=CO_DATASET, reform=reform)
 
     # ===== FISCAL IMPACT =====
-    # Georgia state income tax
-    ga_baseline = sim_baseline.calculate(
-        "ga_income_tax", period=year, map_to="household"
+    # Colorado state income tax
+    co_baseline = sim_baseline.calculate(
+        "co_income_tax", period=year, map_to="household"
     )
-    ga_reform = sim_reform.calculate(
-        "ga_income_tax", period=year, map_to="household"
+    co_reform = sim_reform.calculate(
+        "co_income_tax", period=year, map_to="household"
     )
-    state_tax_revenue_impact = float((ga_reform - ga_baseline).sum())
+    state_tax_revenue_impact = float((co_reform - co_baseline).sum())
 
-    # Federal income tax
+    # Sanity check: the reform must move CO income-tax revenue. A zero
+    # delta means the contrib flag did not activate (e.g. a stale pin).
+    if abs(state_tax_revenue_impact) < 1.0:
+        raise RuntimeError(
+            "Sanity check failed: Initiative 195 reform produced no "
+            "change in CO income-tax revenue. Check that the installed "
+            "policyengine-us release includes PR #9431 and the "
+            "gov.contrib.states.co.progressive_income_tax.in_effect "
+            "parameter."
+        )
+
+    # Federal income tax (SALT / itemization interactions)
     fed_baseline = sim_baseline.calculate(
         "income_tax", period=year, map_to="household"
     )
@@ -90,10 +117,15 @@ def calculate_aggregate_impact(year: int = 2026) -> dict:
     income_change = reform_net_income - baseline_net_income
     change_arr = np.array(income_change)
     baseline_net_income_arr = np.array(baseline_net_income)
-    household_weight = sim_reform.calculate("household_weight", period=year)
+    household_weight = sim_baseline.calculate("household_weight", period=year)
     weight_arr = np.array(household_weight)
 
     total_households = float(weight_arr.sum())
+    avg_household_net_income_change = (
+        float((change_arr * weight_arr).sum() / total_households)
+        if total_households
+        else 0.0
+    )
 
     # ===== WINNERS / LOSERS =====
     winners = float(weight_arr[change_arr > 1].sum())
@@ -238,39 +270,27 @@ def calculate_aggregate_impact(year: int = 2026) -> dict:
     )
     agi_arr = np.array(agi)
 
-    income_brackets = [
-        (0, 25_000, "$0 - $25k"),
-        (25_000, 50_000, "$25k - $50k"),
-        (50_000, 75_000, "$50k - $75k"),
-        (75_000, 100_000, "$75k - $100k"),
-        (100_000, 150_000, "$100k - $150k"),
-        (150_000, 200_000, "$150k - $200k"),
-        (200_000, float("inf"), "$200k+"),
-    ]
-
     by_income_bracket = []
-    for min_inc, max_inc, label in income_brackets:
-        mask = (
-            (agi_arr >= min_inc)
-            & (agi_arr < max_inc)
-            & beneficiary_mask
+    for min_inc, max_inc, label in INCOME_BRACKETS:
+        band_mask = (agi_arr >= min_inc) & (agi_arr < max_inc)
+        band_households = float(weight_arr[band_mask].sum())
+        band_beneficiaries = float(
+            weight_arr[band_mask & beneficiary_mask].sum()
         )
-        bracket_beneficiaries = float(weight_arr[mask].sum())
-        if bracket_beneficiaries > 0:
-            bracket_cost = float(
-                (change_arr[mask] * weight_arr[mask]).sum()
+        if band_households > 0:
+            band_total = float(
+                (change_arr[band_mask] * weight_arr[band_mask]).sum()
             )
-            bracket_avg = float(
-                np.average(change_arr[mask], weights=weight_arr[mask])
-            )
+            band_avg = band_total / band_households
         else:
-            bracket_cost = 0.0
-            bracket_avg = 0.0
+            band_total = 0.0
+            band_avg = 0.0
         by_income_bracket.append({
             "bracket": label,
-            "beneficiaries": bracket_beneficiaries,
-            "total_cost": bracket_cost,
-            "avg_benefit": bracket_avg,
+            "households": band_households,
+            "beneficiaries": band_beneficiaries,
+            "total_cost": band_total,
+            "avg_benefit": band_avg,
         })
 
     return {
@@ -290,6 +310,7 @@ def calculate_aggregate_impact(year: int = 2026) -> dict:
             "deciles": intra_decile_deciles,
         },
         "total_cost": -budgetary_impact,
+        "avg_household_net_income_change": avg_household_net_income_change,
         "beneficiaries": beneficiaries,
         "avg_benefit": avg_benefit,
         "winners": winners,
