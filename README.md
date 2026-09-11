@@ -36,7 +36,11 @@ Official text: [Initiative 195 final filing](https://www.sos.state.co.us/pubs/el
   `populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z`, file
   `populace_us_2024_acs_local.h5`, loaded via `hf_hub_download` then
   `Microsimulation(dataset=<path>)`. Colorado = `state_fips` 8; districts =
-  `congressional_district_geoid` 801..808 (SSDD encoding).
+  `congressional_district_geoid` 801..808 (SSDD encoding). Because the
+  initiative only affects Colorado, the pipeline subsets the CO households
+  (with all linked member entities, weights preserved — ~30–50k households)
+  into a CO-only h5 before simulating, cached in the results Volume keyed
+  by dataset revision, so the simulation itself runs in minutes.
 - **Year**: tax year 2027 only.
 - **Python package**: `co_tax_calc/` (reform definition, household situation
   builder, statewide microsimulation).

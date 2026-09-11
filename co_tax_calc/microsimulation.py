@@ -1,11 +1,20 @@
 """Aggregate impact calculations for Colorado Initiative 195 (Amendment 87).
 
-Runs ONE national baseline and ONE national reform Microsimulation on
-the Populace build P ACS local-area dataset (~1.6M households with
-PUMA-assigned CD-119 / county / state geography) and derives BOTH the
-statewide and the congressional-district results from that single pass.
+SUBSETS BEFORE SIMULATING: Initiative 195 only affects Colorado, so
+simulating all ~1.6M national households twice is waste (100+ minutes
+and preemption exposure). ``build_co_subset`` opens the national
+Populace build P ACS local-area h5 with the library's own
+``USSingleYearDataset`` loader, keeps household rows with
+``state_fips == 8`` plus all their member persons / tax units /
+spm units / families / marital units (via the person table's
+``person_<entity>_id`` linkage columns; names verified empirically),
+and saves a CO-only h5 (~30-50k households). Every household keeps its
+weight, so weighted CO totals from the subset equal CO-filtered totals
+from a national run. Baseline + reform Microsimulations then run on
+the CO-only dataset in minutes; statewide = all rows and districts =
+groupby CD geoid 801..808, both derived from the same single pass.
 
-Dataset provenance (single national file):
+Dataset provenance (single national source file):
     repo_id  policyengine/populace-us (HF dataset repo)
     revision populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z
     filename populace_us_2024_acs_local.h5
@@ -70,8 +79,17 @@ INCOME_BRACKETS = [
 ]
 
 
+# Plausibility bounds for the CO subset household count.
+CO_SUBSET_MIN_HOUSEHOLDS = 10_000
+CO_SUBSET_MAX_HOUSEHOLDS = 200_000
+
+# Cache filename for the CO-only h5, keyed by dataset revision so a
+# revision bump invalidates the cache automatically.
+CO_SUBSET_FILENAME = f"co_subset_{POPULACE_REVISION}.h5"
+
+
 def load_dataset_path() -> str:
-    """Download (or reuse the cached) build P ACS local-area h5."""
+    """Download (or reuse the cached) national build P ACS local h5."""
     from huggingface_hub import hf_hub_download
 
     return hf_hub_download(
@@ -80,6 +98,105 @@ def load_dataset_path() -> str:
         revision=POPULACE_REVISION,
         filename=POPULACE_FILENAME,
     )
+
+
+def build_co_subset(national_path: str, output_path: str) -> int:
+    """Write a Colorado-only USSingleYearDataset h5 and return its
+    household count.
+
+    Keeps households with ``state_fips == 8``, their member persons,
+    and every group unit (tax_unit / spm_unit / family / marital_unit)
+    referenced by those persons. Household and person weights are
+    carried through unchanged, so weighted CO statistics from the
+    subset equal CO-filtered statistics from the national file.
+    """
+    from policyengine_us.data import USSingleYearDataset
+
+    print(f"Loading national dataset tables from {national_path}...")
+    national = USSingleYearDataset(file_path=national_path)
+
+    household = national.household
+    co_household = household[
+        household["state_fips"] == CO_STATE_FIPS
+    ].reset_index(drop=True)
+    n_households = len(co_household)
+
+    if not (
+        CO_SUBSET_MIN_HOUSEHOLDS < n_households < CO_SUBSET_MAX_HOUSEHOLDS
+    ):
+        raise RuntimeError(
+            f"Sanity check failed: CO subset has {n_households} "
+            f"households, outside the plausible "
+            f"({CO_SUBSET_MIN_HOUSEHOLDS}, {CO_SUBSET_MAX_HOUSEHOLDS}) "
+            "range. Geography columns may have changed."
+        )
+
+    geoids = set(
+        co_household["congressional_district_geoid"].unique().tolist()
+    )
+    if geoids != set(CO_DISTRICT_GEOIDS):
+        raise RuntimeError(
+            "Sanity check failed: CO subset congressional_district_geoid "
+            f"values are {sorted(geoids)}, expected {CO_DISTRICT_GEOIDS}."
+        )
+
+    person = national.person
+    co_person = person[
+        person["person_household_id"].isin(co_household["household_id"])
+    ].reset_index(drop=True)
+    if len(co_person) == 0:
+        raise RuntimeError(
+            "Sanity check failed: CO subset has households but no "
+            "member persons -- person_household_id linkage broken?"
+        )
+
+    def _members(group_df, id_col: str, person_link_col: str):
+        return group_df[
+            group_df[id_col].isin(co_person[person_link_col])
+        ].reset_index(drop=True)
+
+    subset = USSingleYearDataset(
+        person=co_person,
+        household=co_household,
+        tax_unit=_members(
+            national.tax_unit, "tax_unit_id", "person_tax_unit_id"
+        ),
+        spm_unit=_members(
+            national.spm_unit, "spm_unit_id", "person_spm_unit_id"
+        ),
+        family=_members(national.family, "family_id", "person_family_id"),
+        marital_unit=_members(
+            national.marital_unit, "marital_unit_id", "person_marital_unit_id"
+        ),
+        time_period=int(national.time_period),
+    )
+    subset.save(output_path)
+    print(
+        f"Saved CO subset: {n_households} households, "
+        f"{len(co_person)} persons -> {output_path}"
+    )
+    return n_households
+
+
+def get_co_dataset_path(cache_dir: str | None = None) -> str:
+    """Return a path to the CO-only h5, building (and caching) it from
+    the national file if it does not exist yet.
+
+    Args:
+        cache_dir: Directory for the cached subset. Defaults to a local
+            user cache; the Modal pipeline passes a directory on its
+            results Volume instead.
+    """
+    import os
+    from pathlib import Path
+
+    if cache_dir is None:
+        cache_dir = str(Path.home() / ".cache" / "co_tax_calc")
+    os.makedirs(cache_dir, exist_ok=True)
+    subset_path = os.path.join(cache_dir, CO_SUBSET_FILENAME)
+    if not os.path.exists(subset_path):
+        build_co_subset(load_dataset_path(), subset_path)
+    return subset_path
 
 
 def _poverty_metrics(baseline_rate: float, reform_rate: float):
@@ -112,13 +229,23 @@ def _weighted_deciles(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
     return np.digitize(values, bounds) + 1  # 1..10
 
 
-def calculate_impacts(year: int = DEFAULT_YEAR) -> dict:
+def calculate_impacts(
+    year: int = DEFAULT_YEAR, dataset_path: str | None = None
+) -> dict:
     """Calculate statewide AND district Initiative 195 impacts.
 
-    One national baseline pass + one national reform pass on the build
-    P ACS local-area dataset; Colorado rows are selected by
-    ``state_fips == 8`` and districts by ``congressional_district_geoid``
-    in 801..808.
+    One baseline pass + one reform pass on the CO-only subset of the
+    build P ACS local-area dataset (built and cached via
+    ``get_co_dataset_path`` when ``dataset_path`` is not given).
+    Statewide = all rows; districts = groupby
+    ``congressional_district_geoid`` 801..808. The geography masks are
+    still applied (and checked) even though the subset should already
+    be pure Colorado.
+
+    Args:
+        year: Tax year (2027).
+        dataset_path: Path to a CO-only h5 produced by
+            ``build_co_subset``. Defaults to the locally cached subset.
 
     Returns:
         ``{"statewide": {...}, "districts": [{...}, ...]}`` where the
@@ -127,7 +254,8 @@ def calculate_impacts(year: int = DEFAULT_YEAR) -> dict:
         the congressional_districts.csv contract
         (scripts/DATA_SCHEMA.md). All changes are reform - baseline.
     """
-    dataset_path = load_dataset_path()
+    if dataset_path is None:
+        dataset_path = get_co_dataset_path()
     reform = create_co_reform()
 
     # Baseline = current law (flat 4.4%). Reform = Initiative 195.

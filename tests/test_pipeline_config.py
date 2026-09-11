@@ -110,3 +110,119 @@ class TestDetachSafety:
         assert "def fetch()" in text
         assert "modal run --detach scripts/modal_pipeline.py::kickoff" in text
         assert "modal run scripts/modal_pipeline.py::fetch" in text
+
+    def test_subset_cached_in_volume(self):
+        """The CO subset must be built before simulating and cached in
+        the results Volume keyed by dataset revision."""
+        text = self.text
+        assert "build_co_subset" in text
+        assert "CO_SUBSET_FILENAME" in text
+        assert 'os.path.join(RESULTS_DIR, "cache")' in text
+
+
+class TestBuildCoSubset:
+    """Unit tests for the CO-subset extraction on a synthetic national
+    dataset (no downloads)."""
+
+    @staticmethod
+    def _make_national(tmp_path, n_co=12_000, n_other=500):
+        import numpy as np
+        import pandas as pd
+        from policyengine_us.data import USSingleYearDataset
+
+        from co_tax_calc.microsimulation import (
+            CO_DISTRICT_GEOIDS,
+            CO_STATE_FIPS,
+        )
+
+        n = n_co + n_other
+        hh_ids = np.arange(1, n + 1)
+        state = np.where(np.arange(n) < n_co, CO_STATE_FIPS, 48)  # TX rest
+        geoid = np.where(
+            np.arange(n) < n_co,
+            np.array(CO_DISTRICT_GEOIDS)[np.arange(n) % 8],
+            4801,
+        )
+        household = pd.DataFrame({
+            "household_id": hh_ids,
+            "state_fips": state,
+            "congressional_district_geoid": geoid,
+            "household_weight": np.full(n, 25.0),
+        })
+        # One person + one of each group unit per household, ids = hh id.
+        person = pd.DataFrame({
+            "person_id": hh_ids,
+            "person_household_id": hh_ids,
+            "person_tax_unit_id": hh_ids,
+            "person_spm_unit_id": hh_ids,
+            "person_family_id": hh_ids,
+            "person_marital_unit_id": hh_ids,
+            "person_weight": np.full(n, 25.0),
+            "age": np.full(n, 40),
+        })
+        national = USSingleYearDataset(
+            person=person,
+            household=household,
+            tax_unit=pd.DataFrame({"tax_unit_id": hh_ids}),
+            spm_unit=pd.DataFrame({"spm_unit_id": hh_ids}),
+            family=pd.DataFrame({"family_id": hh_ids}),
+            marital_unit=pd.DataFrame({"marital_unit_id": hh_ids}),
+            time_period=2024,
+        )
+        path = str(tmp_path / "national.h5")
+        national.save(path)
+        return path
+
+    def test_subset_keeps_only_colorado_with_weights(self, tmp_path):
+        from policyengine_us.data import USSingleYearDataset
+
+        from co_tax_calc.microsimulation import build_co_subset
+
+        national_path = self._make_national(tmp_path)
+        out_path = str(tmp_path / "co_subset.h5")
+        n = build_co_subset(national_path, out_path)
+        assert n == 12_000
+
+        subset = USSingleYearDataset(file_path=out_path)
+        assert (subset.household["state_fips"] == 8).all()
+        assert len(subset.household) == 12_000
+        assert len(subset.person) == 12_000
+        assert len(subset.tax_unit) == 12_000
+        assert len(subset.spm_unit) == 12_000
+        # Weights carried through unchanged.
+        assert (subset.household["household_weight"] == 25.0).all()
+        # All 8 district geoids present.
+        assert set(
+            subset.household["congressional_district_geoid"].unique()
+        ) == set(range(801, 809))
+        assert subset.time_period == "2024"
+
+    def test_subset_rejects_missing_district(self, tmp_path):
+        import pandas as pd
+        import pytest
+
+        from co_tax_calc.microsimulation import build_co_subset
+
+        national_path = self._make_national(tmp_path)
+        # Break geography: rewrite the CO-08 rows to CO-01.
+        with pd.HDFStore(national_path) as store:
+            hh = store["household"]
+            hh.loc[
+                hh["congressional_district_geoid"] == 808,
+                "congressional_district_geoid",
+            ] = 801
+            store.put("household", hh, format="table", data_columns=True)
+
+        with pytest.raises(
+            RuntimeError, match="congressional_district_geoid"
+        ):
+            build_co_subset(national_path, str(tmp_path / "co2.h5"))
+
+    def test_subset_rejects_implausible_count(self, tmp_path):
+        import pytest
+
+        from co_tax_calc.microsimulation import build_co_subset
+
+        national_path = self._make_national(tmp_path, n_co=800, n_other=50)
+        with pytest.raises(RuntimeError, match="households"):
+            build_co_subset(national_path, str(tmp_path / "co3.h5"))

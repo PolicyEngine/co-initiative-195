@@ -1,8 +1,13 @@
 """Modal data pipeline for Colorado Initiative 195 (detach-safe).
 
-Runs ONE national baseline and ONE national reform Microsimulation for
-tax year 2027 on the Populace build P ACS local-area dataset and
-produces BOTH the statewide CSVs and the congressional-district CSV
+SUBSETS BEFORE SIMULATING: Initiative 195 only affects Colorado, so
+the pipeline first extracts the CO-only rows (state_fips == 8 plus all
+linked persons / tax units / spm units / families / marital units,
+weights preserved -- ~30-50k households) from the national Populace
+build P ACS local-area file into a CO-only h5, cached in the results
+Volume keyed by dataset revision. Baseline + reform Microsimulations
+for tax year 2027 then run on the small CO dataset in minutes and
+produce BOTH the statewide CSVs and the congressional-district CSV
 from that single pass.
 
 DETACH-SAFE DESIGN: the remote function writes every output CSV plus a
@@ -201,23 +206,48 @@ def _build_csv_rows(result: dict, year: int) -> dict:
     volumes={RESULTS_DIR: results_volume},
 )
 def compute(year: int) -> dict:
-    """Run the national pass and persist all CSVs + manifest to the
-    results Volume (committed), so nothing depends on the local driver
-    staying alive."""
+    """Build (or reuse) the CO-only subset, run the CO-only pass, and
+    persist all CSVs + manifest to the results Volume (committed), so
+    nothing depends on the local driver staying alive.
+
+    The CO subset (~30-50k households, weights preserved) is cached in
+    the Volume keyed by dataset revision: reruns skip the ~10GB
+    national download and the subset step and finish in minutes.
+    """
     from datetime import datetime, timezone
 
     import pandas as pd
 
     from co_tax_calc.microsimulation import (
+        CO_SUBSET_FILENAME,
         POPULACE_FILENAME,
         POPULACE_REPO,
         POPULACE_REVISION,
+        build_co_subset,
         calculate_impacts,
+        load_dataset_path,
     )
 
     print(f"Starting Colorado Initiative 195 calculation for TY{year}...")
-    print(f"Dataset: {POPULACE_FILENAME} @ {POPULACE_REVISION}")
-    result = calculate_impacts(year=year)
+    print(f"Source dataset: {POPULACE_FILENAME} @ {POPULACE_REVISION}")
+
+    cache_dir = os.path.join(RESULTS_DIR, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    subset_path = os.path.join(cache_dir, CO_SUBSET_FILENAME)
+    if os.path.exists(subset_path):
+        print(f"CO subset cache hit: {subset_path}")
+    else:
+        print("CO subset cache miss -- downloading national file...")
+        n_households = build_co_subset(load_dataset_path(), subset_path)
+        # Checkpoint the subset immediately so a preempted or failed
+        # run never repeats the national download + subset step.
+        results_volume.commit()
+        print(
+            f"Checkpointed CO subset ({n_households} households) to "
+            "the results volume."
+        )
+
+    result = calculate_impacts(year=year, dataset_path=subset_path)
 
     csvs = _build_csv_rows(result, year)
     for filename, rows in csvs.items():
@@ -232,10 +262,12 @@ def compute(year: int) -> dict:
         "dataset_repo": POPULACE_REPO,
         "dataset_revision": POPULACE_REVISION,
         "dataset_filename": POPULACE_FILENAME,
+        "co_subset_cache": f"cache/{CO_SUBSET_FILENAME}",
         "files": list(csvs.keys()),
         "state_tax_revenue_impact": result["statewide"]["budget"][
             "state_tax_revenue_impact"
         ],
+        "co_households": result["statewide"]["budget"]["households"],
         "districts": len(result["districts"]),
     }
     with open(os.path.join(RESULTS_DIR, MANIFEST_NAME), "w") as fh:

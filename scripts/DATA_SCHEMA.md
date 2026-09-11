@@ -21,10 +21,19 @@ PUMA-assigned CD-119 / county / state geography), loaded FUTA-template style
 
 Colorado rows: `state_fips == 8`. Districts: `congressional_district_geoid`
 in 801..808 (integer SSDD = state FIPS × 100 + district number; verified
-empirically against the h5). Because statewide and district results come from
-the same national file and the same pass, district totals aggregate
-consistently to the statewide totals (unlike the old per-district ECPS
-files, which were calibrated independently).
+empirically against the h5).
+
+**CO-subset step**: because Initiative 195 only affects Colorado, the
+pipeline extracts the CO households (plus all their linked persons / tax
+units / spm units / families / marital units, weights preserved — ~30–50k
+households) from the national file into a CO-only `USSingleYearDataset` h5
+BEFORE simulating, cached in the results Volume at
+`cache/co_subset_<revision>.h5` so reruns skip the ~10GB national download.
+Each household keeps its weight, so weighted CO statistics from the subset
+are identical in meaning to CO-filtered statistics from a full national
+run. Statewide and district results come from the same CO-only pass, so
+district totals aggregate consistently to the statewide totals (unlike the
+old per-district ECPS files, which were calibrated independently).
 
 ## Global conventions
 
