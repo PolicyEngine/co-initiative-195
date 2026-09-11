@@ -60,6 +60,40 @@ All outputs land in `frontend/public/data/` and are committed. The map
 geojson (`frontend/public/data/geojson/`) is national 119th-Congress data and
 already includes Colorado's 8 districts (`DISTRICT_ID` CO-01..CO-08).
 
+## Frontend
+
+`frontend/` is a Next.js (App Router) + Tailwind v4 single-page dashboard
+with five tabs (`TAB_CONFIG` in `app/(shell)/page.tsx`):
+
+1. **Policy overview** — the six-bracket table, who is affected, effective
+   dates, and the Amendment 87 ballot designation.
+2. **Household impact** — live calculator against
+   `https://api.policyengine.org/us/calculate` (no backend server): baseline
+   vs. the single contrib-parameter reform, state `CO`, tax year 2027,
+   employment-income sweep to $1,300,000 so all six brackets are visible.
+   Precomputed example-household cards load instantly from
+   `public/data/example_households.json`.
+3. **Statewide impact** — precomputed Modal results (revenue, distributional,
+   winners/losers, poverty) read from the plain-named CSVs in
+   `public/data/` per `scripts/DATA_SCHEMA.md`.
+4. **Congressional districts** — SVG choropleth plus table for CO-01..CO-08,
+   reading `congressional_districts.csv` and the committed geojson.
+5. **Validation & methodology** — model revenue vs. the Legislative Council
+   Staff fiscal impact statement, methodology, and the known modeling
+   limitations below.
+
+Every tab that depends on precomputed data renders a clear "not yet
+available" state until the pipelines have run, so the app builds and deploys
+before the Modal precompute.
+
+```bash
+cd frontend
+npm install
+npm run dev    # http://localhost:3010 (set NEXT_PUBLIC_BASE_PATH="" for local dev)
+npm test       # vitest
+npm run build  # production build (basePath /us/co-initiative-195)
+```
+
 ## Known modeling limitations
 
 - The initiative's (1.8)(b) home-sale carve-out (section 121-excess gains
