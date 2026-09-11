@@ -1,30 +1,53 @@
-"""
-Tests for the sc_tax_calc.household module.
+"""Tests for the co_tax_calc.household module.
 
-These tests verify that the household-situation builder produces correct
-PolicyEngine-compatible dictionaries, defaulting to South Carolina (SC)
-for this dashboard.
+Verify that the household-situation builder produces correct
+PolicyEngine-compatible dictionaries, defaulting to Colorado (CO) for
+this dashboard.
 """
 
-import pytest
-from sc_tax_calc.household import build_household_situation
+from co_tax_calc.household import (
+    DEFAULT_MAX_EARNINGS,
+    build_household_situation,
+)
 
 
 class TestBuildHouseholdSituation:
     """Tests for build_household_situation()."""
 
-    def test_default_state_is_south_carolina(self):
-        """state_code defaults to SC when not specified."""
+    def test_default_state_is_colorado(self):
+        """state_code defaults to CO when not specified."""
         situation = build_household_situation(
-            age_head=30,
+            age_head=28,
             age_spouse=None,
             dependent_ages=[],
-            income=40000,
-            year=2026,
-            max_earnings=500000,
+            income=45000,
+            year=2027,
             include_axes=False,
         )
-        assert situation["households"]["your household"]["state_code"]["2026"] == "SC"
+        assert (
+            situation["households"]["your household"]["state_code"]["2027"]
+            == "CO"
+        )
+
+    def test_default_max_earnings_covers_top_bracket(self):
+        """The default sweep must extend past $1M (top 8.4% bracket)."""
+        assert DEFAULT_MAX_EARNINGS >= 1_200_000
+
+    def test_single_filer(self):
+        situation = build_household_situation(
+            age_head=28,
+            age_spouse=None,
+            dependent_ages=[],
+            income=45000,
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
+            include_axes=False,
+        )
+
+        assert len(situation["people"]) == 1
+        assert situation["people"]["you"]["age"]["2027"] == 28
+        assert "your partner" not in situation["people"]
 
     def test_single_parent_with_one_child(self):
         situation = build_household_situation(
@@ -32,34 +55,32 @@ class TestBuildHouseholdSituation:
             age_spouse=None,
             dependent_ages=[2],
             income=20000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=False,
         )
 
         assert "you" in situation["people"]
-        assert situation["people"]["you"]["age"]["2026"] == 30
         assert "your first dependent" in situation["people"]
-        assert situation["people"]["your first dependent"]["age"]["2026"] == 2
+        assert situation["people"]["your first dependent"]["age"]["2027"] == 2
         assert "your partner" not in situation["people"]
-        assert situation["households"]["your household"]["state_code"]["2026"] == "SC"
 
     def test_married_couple_with_two_children(self):
         situation = build_household_situation(
-            age_head=32,
-            age_spouse=30,
-            dependent_ages=[1, 3],
-            income=30000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            age_head=40,
+            age_spouse=38,
+            dependent_ages=[6, 9],
+            income=95000,
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=False,
         )
 
         assert "you" in situation["people"]
         assert "your partner" in situation["people"]
-        assert situation["people"]["your partner"]["age"]["2026"] == 30
+        assert situation["people"]["your partner"]["age"]["2027"] == 38
         assert "your first dependent" in situation["people"]
         assert "your second dependent" in situation["people"]
 
@@ -75,9 +96,9 @@ class TestBuildHouseholdSituation:
             age_spouse=33,
             dependent_ages=[0, 1, 2, 3],
             income=35000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=False,
         )
 
@@ -86,30 +107,15 @@ class TestBuildHouseholdSituation:
         assert "dependent_3" in situation["people"]
         assert "dependent_4" in situation["people"]
 
-    def test_no_children(self):
-        situation = build_household_situation(
-            age_head=45,
-            age_spouse=None,
-            dependent_ages=[],
-            income=30000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
-            include_axes=False,
-        )
-
-        assert len(situation["people"]) == 1
-        assert "you" in situation["people"]
-
     def test_axes_included(self):
         situation = build_household_situation(
             age_head=30,
             age_spouse=None,
             dependent_ages=[2],
             income=20000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=True,
         )
 
@@ -120,8 +126,8 @@ class TestBuildHouseholdSituation:
         axis = situation["axes"][0][0]
         assert axis["name"] == "employment_income"
         assert axis["min"] == 0
-        assert axis["max"] == 500000
-        assert axis["period"] == "2026"
+        assert axis["max"] == 1300000
+        assert axis["period"] == "2027"
 
     def test_axes_excluded(self):
         situation = build_household_situation(
@@ -129,9 +135,9 @@ class TestBuildHouseholdSituation:
             age_spouse=None,
             dependent_ages=[2],
             income=20000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=False,
         )
         assert "axes" not in situation
@@ -142,25 +148,25 @@ class TestBuildHouseholdSituation:
             age_head=30,
             age_spouse=None,
             dependent_ages=[],
-            income=1000000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            income=2000000,
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=True,
         )
-        assert situation_high_income["axes"][0][0]["max"] == 1000000
+        assert situation_high_income["axes"][0][0]["max"] == 2000000
 
         situation_high_max = build_household_situation(
             age_head=30,
             age_spouse=None,
             dependent_ages=[],
             income=100000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=True,
         )
-        assert situation_high_max["axes"][0][0]["max"] == 500000
+        assert situation_high_max["axes"][0][0]["max"] == 1300000
 
     def test_marital_units_created_correctly(self):
         """Each child gets their own marital unit."""
@@ -169,13 +175,15 @@ class TestBuildHouseholdSituation:
             age_spouse=None,
             dependent_ages=[5, 10],
             income=50000,
-            year=2026,
-            max_earnings=500000,
-            state_code="SC",
+            year=2027,
+            max_earnings=1300000,
+            state_code="CO",
             include_axes=False,
         )
 
         assert "your marital unit" in situation["marital_units"]
-        assert "you" in situation["marital_units"]["your marital unit"]["members"]
+        assert (
+            "you" in situation["marital_units"]["your marital unit"]["members"]
+        )
         assert "your first dependent's marital unit" in situation["marital_units"]
         assert "your second dependent's marital unit" in situation["marital_units"]

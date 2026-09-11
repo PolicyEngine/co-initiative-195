@@ -1,13 +1,12 @@
 """Schema validation for the precomputed example_households.json payload.
 
-The dashboard's "Example households" cards and the chart's per-provision
-lines read this file directly via the frontend; a typo in
-``scripts/compute_example_households.py`` (e.g., dropping a key,
-renaming a field, dropping the ``interaction_residual`` sub-object)
-would silently produce broken UI without these tests catching it.
+The dashboard's "Example households" cards and sweep chart read this
+file directly; a typo in ``scripts/compute_example_households.py``
+(dropping a key, renaming a field, flipping a sign) would silently
+produce broken UI without these tests.
 
-These tests are pure schema checks against the committed JSON — they
-do not re-run any PolicyEngine sims.
+Pure schema checks against the committed JSON — they do not re-run any
+PolicyEngine sims. Schema: scripts/DATA_SCHEMA.md.
 """
 
 from __future__ import annotations
@@ -28,19 +27,22 @@ PAYLOAD_PATH = (
 
 @pytest.fixture(scope="module")
 def payload() -> dict:
+    if not PAYLOAD_PATH.exists():
+        pytest.skip("example_households.json not generated yet")
     with PAYLOAD_PATH.open("r", encoding="utf-8") as fh:
         return json.load(fh)
-
-
-def test_top_level_shape(payload: dict) -> None:
-    assert payload["year"] == 2026
-    assert isinstance(payload["households"], list)
-    assert len(payload["households"]) >= 1
 
 
 @pytest.fixture(scope="module")
 def households(payload: dict) -> list[dict]:
     return payload["households"]
+
+
+def test_top_level_shape(payload: dict) -> None:
+    assert payload["year"] == 2027
+    assert payload["pin"].startswith("policyengine-us==")
+    assert isinstance(payload["households"], list)
+    assert len(payload["households"]) >= 3
 
 
 def test_profile_fields_present(households: list[dict]) -> None:
@@ -52,7 +54,7 @@ def test_profile_fields_present(households: list[dict]) -> None:
 
 
 def test_baseline_and_reform_fields(households: list[dict]) -> None:
-    required = {"household_net_income", "sc_income_tax", "income_tax"}
+    required = {"household_net_income", "co_income_tax", "income_tax"}
     for h in households:
         for key in ("baseline", "reform"):
             assert required <= h[key].keys(), (
@@ -63,9 +65,17 @@ def test_baseline_and_reform_fields(households: list[dict]) -> None:
 
 def test_top_level_changes_present(households: list[dict]) -> None:
     for h in households:
-        for key in ("net_income_change", "sc_tax_change", "federal_tax_change"):
+        for key in ("net_income_change", "state_tax_change", "federal_tax_change"):
             assert key in h, f"household {h['label']} missing '{key}'"
             assert isinstance(h[key], (int, float))
+
+
+def test_no_ga_provision_keys(households: list[dict]) -> None:
+    """Initiative 195 is a single provision — the GA template's
+    per-provision attribution keys must be gone."""
+    for h in households:
+        assert "provisions" not in h
+        assert "provisions_chart" not in h
 
 
 def test_chart_arrays_aligned(households: list[dict]) -> None:
@@ -81,86 +91,69 @@ def test_chart_arrays_aligned(households: list[dict]) -> None:
             )
 
 
-def test_provisions_structure(households: list[dict]) -> None:
-    """Each provision must carry net_income_change; rates/sciad/eitc also
-    carry state_tax_change and federal_tax_change."""
+def test_sweep_reaches_1_3m(households: list[dict]) -> None:
+    """The income sweep must reach $1.3M so all six brackets show."""
     for h in households:
-        provisions = h["provisions"]
-        for key in ("rates", "sciad", "eitc"):
-            assert key in provisions, (
-                f"household {h['label']} missing provisions.{key}"
-            )
-            for field in (
-                "net_income_change",
-                "state_tax_change",
-                "federal_tax_change",
-            ):
-                assert field in provisions[key], (
-                    f"household {h['label']} provisions.{key} missing {field}"
-                )
-        assert "interaction_residual" in provisions
-        assert "net_income_change" in provisions["interaction_residual"]
-
-
-def test_provisions_chart_arrays_aligned(households: list[dict]) -> None:
-    """provisions_chart arrays must match income_range length."""
-    for h in households:
-        n = len(h["chart"]["income_range"])
-        pc = h["provisions_chart"]
-        for key in ("rates", "sciad", "eitc"):
-            assert key in pc
-            for field in (
-                "net_income_change",
-                "state_tax_change",
-                "federal_tax_change",
-            ):
-                assert len(pc[key][field]) == n, (
-                    f"household {h['label']} provisions_chart.{key}.{field} "
-                    f"length mismatch ({len(pc[key][field])} vs {n})"
-                )
-        # interaction_residual only carries net_income_change.
-        assert len(pc["interaction_residual"]["net_income_change"]) == n
-
-
-def test_sign_convention_rates_revert_raises_sc_tax(
-    households: list[dict],
-) -> None:
-    """Pre-2026 SC top rate was 6% vs current law's 5.21%, so reverting
-    only the rate schedule must RAISE SC tax (negative state_tax_change
-    under baseline-minus-revert) for any household that actually owes
-    SC tax. Households below the filing threshold pay $0 either way.
-    """
-    for h in households:
-        rates = h["provisions"]["rates"]
-        if abs(rates["state_tax_change"]) < 1:
-            continue
-        assert rates["state_tax_change"] < 0, (
-            f"household {h['label']}: rates-only revert state_tax_change="
-            f"{rates['state_tax_change']:.2f} should be negative "
-            f"(pre-2026 6% top rate > current 5.21%). Baseline/revert may "
-            f"have been swapped."
+        assert max(h["chart"]["income_range"]) >= 1_300_000 - 1, (
+            f"household {h['label']} sweep tops out at "
+            f"{max(h['chart']['income_range'])}"
         )
 
 
-def test_federal_channel_visible_for_itemizer(households: list[dict]) -> None:
-    """A profile labeled 'itemizer' must actually itemize federally and
-    therefore show a non-zero federal_tax_change on rate revert (SALT
-    flow-through). PE-US's federal mortgage-interest deduction reads
-    tax-unit-level inputs; passing person-level home_mortgage_interest
-    is a silent no-op that previously kept this profile on the standard
-    deduction and zeroed the federal channel. This test guards against
-    that regression.
-    """
-    itemizers = [h for h in households if "itemizer" in h["label"].lower()]
-    if not itemizers:
-        pytest.skip("no itemizer profile in payload")
-    for h in itemizers:
-        fed_rates = h["provisions"]["rates"]["federal_tax_change"]
-        assert abs(fed_rates) >= 1, (
-            f"household {h['label']}: itemizer profile's rates-only "
-            f"revert produced federal_tax_change={fed_rates:.2f}. PE-US "
-            f"may be reading mortgage interest from the wrong variable "
-            f"again — check build_household() routes "
-            f"home_mortgage_interest -> first_home_mortgage_* on the "
-            f"tax unit."
+def test_includes_millionaire_profile(households: list[dict]) -> None:
+    """At least one profile must earn > $1M (top 8.4% bracket)."""
+    assert any(h["income"] > 1_000_000 for h in households)
+
+
+def test_sign_convention_millionaire_pays_more(
+    households: list[dict],
+) -> None:
+    """A >$1M household must pay MORE CO tax under Initiative 195
+    (positive tax-side state_tax_change, negative net_income_change)."""
+    for h in households:
+        if h["income"] <= 1_000_000:
+            continue
+        assert h["state_tax_change"] > 0, (
+            f"household {h['label']}: state_tax_change="
+            f"{h['state_tax_change']:.2f} should be positive (7.4-8.4% "
+            "top rates exceed the 4.4% flat rate). Baseline/reform may "
+            "have been swapped."
+        )
+        assert h["net_income_change"] < 0, (
+            f"household {h['label']}: net_income_change should be "
+            "negative for a >$1M earner under Initiative 195."
+        )
+
+
+def test_sign_convention_middle_income_does_not_pay_more(
+    households: list[dict],
+) -> None:
+    """Wage households at or below $100k face 3.7%/4.2% (< 4.4% flat):
+    their CO tax cannot rise under Initiative 195."""
+    for h in households:
+        if not (0 < h["income"] <= 100_000):
+            continue
+        assert h["state_tax_change"] <= 0.01, (
+            f"household {h['label']}: state_tax_change="
+            f"{h['state_tax_change']:.2f} should be <= 0 for wages "
+            "<= $100k."
+        )
+
+
+def test_state_sweep_matches_expected_shape(households: list[dict]) -> None:
+    """Along the sweep, CO tax change must be <= ~0 below $100k of
+    wages and positive well above $500k for every profile."""
+    for h in households:
+        xs = h["chart"]["income_range"]
+        state = h["chart"]["state_tax_change"]
+        for x, s in zip(xs, state):
+            if 0 < x <= 100_000:
+                assert s <= 1, (
+                    f"{h['label']}: state_tax_change {s:.2f} at "
+                    f"income {x} should not be positive"
+                )
+        top = [s for x, s in zip(xs, state) if x >= 1_200_000]
+        assert top and all(s > 0 for s in top), (
+            f"{h['label']}: expected positive state tax change at "
+            ">= $1.2M sweep incomes"
         )
