@@ -70,3 +70,43 @@ class TestMergedPipeline:
                 f"{name} contains non-ASCII characters: "
                 f"{[hex(ord(c)) for c in non_ascii]}"
             )
+
+
+class TestDetachSafety:
+    """The pipeline must survive local `modal run` driver death: the
+    remote fn persists results to a committed Volume, kickoff is
+    fire-and-forget (spawn), and a separate fetch entrypoint downloads
+    the CSVs afterwards."""
+
+    @property
+    def text(self):
+        return (SCRIPTS / "modal_pipeline.py").read_text(encoding="utf-8")
+
+    def test_results_volume_attached_and_committed(self):
+        text = self.text
+        assert '"co-initiative-195-results"' in text
+        assert "create_if_missing=True" in text
+        assert "results_volume.commit()" in text
+        assert "volumes={RESULTS_DIR: results_volume}" in text
+
+    def test_manifest_written(self):
+        text = self.text
+        assert "manifest.json" in text
+        for key in (
+            '"generated_at_utc"',
+            '"pin"',
+            '"dataset_revision"',
+            '"files"',
+        ):
+            assert key in text, f"manifest missing {key}"
+
+    def test_kickoff_spawns_and_fetch_exists(self):
+        text = self.text
+        assert "def kickoff()" in text
+        assert "compute.spawn(" in text, (
+            "kickoff must spawn (fire-and-forget) so --detach survives "
+            "local death"
+        )
+        assert "def fetch()" in text
+        assert "modal run --detach scripts/modal_pipeline.py::kickoff" in text
+        assert "modal run scripts/modal_pipeline.py::fetch" in text

@@ -1,11 +1,25 @@
-"""Modal data pipeline for Colorado Initiative 195 (single merged app).
+"""Modal data pipeline for Colorado Initiative 195 (detach-safe).
 
 Runs ONE national baseline and ONE national reform Microsimulation for
 tax year 2027 on the Populace build P ACS local-area dataset and
 produces BOTH the statewide CSVs and the congressional-district CSV
-from that single pass (the two-app statewide/district split from the
-GA template is gone -- no reason to run a 1.6M-household simulation
-twice).
+from that single pass.
+
+DETACH-SAFE DESIGN: the remote function writes every output CSV plus a
+manifest.json into a modal.Volume ("co-initiative-195-results") and
+commits it, so results survive even if the local `modal run` driver
+process dies mid-run (which loses in-memory return values). Kick off
+with --detach (fire-and-forget), then fetch the committed CSVs in
+seconds with the separate lightweight entrypoint:
+
+    # 1. Fire and forget -- remote job survives local death
+    modal run --detach scripts/modal_pipeline.py::kickoff
+
+    # 2. Later (seconds): verify the manifest and download the CSVs
+    modal run scripts/modal_pipeline.py::fetch
+
+    # (equivalent manual fetch)
+    modal volume get co-initiative-195-results / frontend/public/data/
 
 Dataset (single national file, ~1.6M households, PUMA-assigned
 CD-119 / county / state geography):
@@ -24,13 +38,13 @@ co_tax_calc.microsimulation.calculate_impacts, which raises at startup
 if the reform moves no CO income-tax revenue (stale-pin guard) or if
 the geography columns stop matching expectations.
 
-Outputs (frontend/public/data/): metrics.csv, distributional_impact.csv,
-winners_losers.csv, income_brackets.csv, congressional_districts.csv.
-
-Usage:
-    modal run scripts/modal_pipeline.py
+Outputs (Volume root -> frontend/public/data/): metrics.csv,
+distributional_impact.csv, winners_losers.csv, income_brackets.csv,
+congressional_districts.csv, plus manifest.json (not copied to the
+frontend).
 """
 
+import json
 import os
 
 import modal
@@ -46,7 +60,24 @@ POLICYENGINE_US_PIN = "policyengine-us==1.825.0"
 # Initiative 195's first tax year; the dashboard covers this single year.
 YEAR = 2027
 
+# Results volume: the remote fn writes + commits here so a dead local
+# driver cannot lose the run.
+RESULTS_VOLUME_NAME = "co-initiative-195-results"
+RESULTS_DIR = "/results"
+MANIFEST_NAME = "manifest.json"
+CSV_FILES = [
+    "metrics.csv",
+    "distributional_impact.csv",
+    "winners_losers.csv",
+    "income_brackets.csv",
+    "congressional_districts.csv",
+]
+
 app = modal.App("co-initiative-195-pipeline")
+
+results_volume = modal.Volume.from_name(
+    RESULTS_VOLUME_NAME, create_if_missing=True
+)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -63,54 +94,11 @@ image = (
 )
 
 
-@app.function(
-    image=image,
-    memory=65536,  # 64GB: two full national sims (~1.6M households)
-    timeout=3 * 3600,
-    retries=1,
-)
-def calculate_all(year: int) -> dict:
-    """Run the national pass on Modal; return statewide + districts."""
-    from co_tax_calc.microsimulation import (
-        POPULACE_FILENAME,
-        POPULACE_REVISION,
-        calculate_impacts,
-    )
-
-    print(f"Starting Colorado Initiative 195 calculation for TY{year}...")
-    print(f"Dataset: {POPULACE_FILENAME} @ {POPULACE_REVISION}")
-    result = calculate_impacts(year=year)
-    print(
-        "  Done. CO revenue impact: "
-        f"${result['statewide']['budget']['state_tax_revenue_impact']:,.0f}; "
-        f"{len(result['districts'])} districts."
-    )
-    return result
-
-
-@app.local_entrypoint()
-def main():
-    """Run the pipeline on Modal and save all CSVs locally."""
-    import pandas as pd
-
-    output_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "frontend",
-        "public",
-        "data",
-    )
-    os.makedirs(output_dir, exist_ok=True)
-
-    print(f"Running Colorado Initiative 195 pipeline for TY{YEAR} on Modal...")
-    print(f"Pin: {POLICYENGINE_US_PIN}")
-    print(f"Output directory: {output_dir}")
-
-    result = calculate_all.remote(YEAR)
+def _build_csv_rows(result: dict, year: int) -> dict:
+    """Turn calculate_impacts() output into {filename: rows} per the
+    DATA_SCHEMA.md contract. Pure function (also unit-testable)."""
     statewide = result["statewide"]
-    districts = result["districts"]
-    year = YEAR
 
-    # distributional_impact.csv
     distributional_rows = [
         {
             "year": year,
@@ -123,7 +111,6 @@ def main():
         for decile, avg in statewide["decile"]["average"].items()
     ]
 
-    # metrics.csv
     metrics = [
         ("budgetary_impact", statewide["budget"]["budgetary_impact"]),
         ("federal_tax_revenue_impact", statewide["budget"]["federal_tax_revenue_impact"]),
@@ -160,7 +147,6 @@ def main():
         for metric, value in metrics
     ]
 
-    # winners_losers.csv
     intra = statewide["intra_decile"]
     winners_losers_rows = [
         {
@@ -184,7 +170,6 @@ def main():
             "lose_more_5pct": intra["deciles"]["Lose more than 5%"][i],
         })
 
-    # income_brackets.csv
     income_bracket_rows = [
         {
             "year": year,
@@ -197,18 +182,148 @@ def main():
         for b in statewide["by_income_bracket"]
     ]
 
-    # congressional_districts.csv
-    district_rows = sorted(districts, key=lambda r: r["district"])
+    district_rows = sorted(result["districts"], key=lambda r: r["district"])
 
-    for rows, filename in [
-        (distributional_rows, "distributional_impact.csv"),
-        (metrics_rows, "metrics.csv"),
-        (winners_losers_rows, "winners_losers.csv"),
-        (income_bracket_rows, "income_brackets.csv"),
-        (district_rows, "congressional_districts.csv"),
-    ]:
-        filepath = os.path.join(output_dir, filename)
+    return {
+        "metrics.csv": metrics_rows,
+        "distributional_impact.csv": distributional_rows,
+        "winners_losers.csv": winners_losers_rows,
+        "income_brackets.csv": income_bracket_rows,
+        "congressional_districts.csv": district_rows,
+    }
+
+
+@app.function(
+    image=image,
+    memory=65536,  # 64GB: two full national sims (~1.6M households)
+    timeout=3 * 3600,
+    retries=1,
+    volumes={RESULTS_DIR: results_volume},
+)
+def compute(year: int) -> dict:
+    """Run the national pass and persist all CSVs + manifest to the
+    results Volume (committed), so nothing depends on the local driver
+    staying alive."""
+    from datetime import datetime, timezone
+
+    import pandas as pd
+
+    from co_tax_calc.microsimulation import (
+        POPULACE_FILENAME,
+        POPULACE_REPO,
+        POPULACE_REVISION,
+        calculate_impacts,
+    )
+
+    print(f"Starting Colorado Initiative 195 calculation for TY{year}...")
+    print(f"Dataset: {POPULACE_FILENAME} @ {POPULACE_REVISION}")
+    result = calculate_impacts(year=year)
+
+    csvs = _build_csv_rows(result, year)
+    for filename, rows in csvs.items():
+        filepath = os.path.join(RESULTS_DIR, filename)
         pd.DataFrame(rows).to_csv(filepath, index=False)
+        print(f"  Wrote {filepath}")
+
+    manifest = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "year": year,
+        "pin": POLICYENGINE_US_PIN,
+        "dataset_repo": POPULACE_REPO,
+        "dataset_revision": POPULACE_REVISION,
+        "dataset_filename": POPULACE_FILENAME,
+        "files": list(csvs.keys()),
+        "state_tax_revenue_impact": result["statewide"]["budget"][
+            "state_tax_revenue_impact"
+        ],
+        "districts": len(result["districts"]),
+    }
+    with open(os.path.join(RESULTS_DIR, MANIFEST_NAME), "w") as fh:
+        json.dump(manifest, fh, indent=2)
+
+    results_volume.commit()
+    print(
+        "COMPLETE: results committed to volume "
+        f"'{RESULTS_VOLUME_NAME}'. CO revenue impact: "
+        f"${manifest['state_tax_revenue_impact']:,.0f}; "
+        f"{manifest['districts']} districts. Fetch with: "
+        "modal run scripts/modal_pipeline.py::fetch"
+    )
+    return manifest
+
+
+@app.local_entrypoint()
+def kickoff():
+    """Fire-and-forget kickoff. Run with:
+
+        modal run --detach scripts/modal_pipeline.py::kickoff
+
+    The remote job keeps running (and commits its results to the
+    Volume) even if this local process dies immediately after spawn.
+    """
+    print(f"Kicking off Colorado Initiative 195 pipeline for TY{YEAR}...")
+    print(f"Pin: {POLICYENGINE_US_PIN}")
+    handle = compute.spawn(YEAR)
+    print(f"Spawned remote function call: {handle.object_id}")
+    print(
+        "Results will be committed to volume "
+        f"'{RESULTS_VOLUME_NAME}' when done. Fetch with: "
+        "modal run scripts/modal_pipeline.py::fetch"
+    )
+
+
+@app.local_entrypoint()
+def fetch():
+    """Lightweight fetch: verify the manifest, then download the CSVs
+    from the results Volume into frontend/public/data/ (seconds).
+
+        modal run scripts/modal_pipeline.py::fetch
+
+    Equivalent manual command:
+        modal volume get co-initiative-195-results / frontend/public/data/
+    """
+    output_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "frontend",
+        "public",
+        "data",
+    )
+    os.makedirs(output_dir, exist_ok=True)
+
+    def read_volume_file(path: str) -> bytes:
+        return b"".join(results_volume.read_file(path))
+
+    try:
+        manifest = json.loads(read_volume_file(MANIFEST_NAME))
+    except Exception as err:
+        raise SystemExit(
+            f"No readable {MANIFEST_NAME} in volume "
+            f"'{RESULTS_VOLUME_NAME}' ({err}). The compute job may "
+            "still be running -- check `modal app list` / the app logs."
+        )
+
+    print(f"Manifest: generated {manifest['generated_at_utc']}")
+    print(f"  pin: {manifest['pin']}")
+    print(f"  dataset revision: {manifest['dataset_revision']}")
+
+    if manifest["pin"] != POLICYENGINE_US_PIN:
+        raise SystemExit(
+            f"Manifest pin {manifest['pin']} does not match local "
+            f"{POLICYENGINE_US_PIN} -- results are from a different "
+            "build. Re-run the pipeline."
+        )
+    missing = [f for f in CSV_FILES if f not in manifest.get("files", [])]
+    if missing:
+        raise SystemExit(
+            f"Manifest is missing expected files: {missing}. "
+            "The run may be incomplete."
+        )
+
+    for filename in manifest["files"]:
+        content = read_volume_file(filename)
+        filepath = os.path.join(output_dir, filename)
+        with open(filepath, "wb") as fh:
+            fh.write(content)
         print(f"Saved: {filepath}")
 
     print(f"\nDone! All data saved to {output_dir}/")

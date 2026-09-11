@@ -52,9 +52,19 @@ Output schemas are documented in [`scripts/DATA_SCHEMA.md`](scripts/DATA_SCHEMA.
 uv venv --python 3.13 .venv
 uv pip install -p .venv/Scripts/python.exe -e ".[dev]"
 
-# ALL five CSVs — statewide + congressional districts — in one Modal run
-# (single national baseline + reform pass on the build P acs-local file)
-modal run scripts/modal_pipeline.py
+# ALL five CSVs — statewide + congressional districts — in one Modal job
+# (single national baseline + reform pass on the build P acs-local file).
+# Detach-safe: the remote function writes + commits every CSV plus a
+# manifest.json to the Modal Volume "co-initiative-195-results", so the
+# run survives local driver death.
+modal run --detach scripts/modal_pipeline.py::kickoff
+
+# After the job completes (check `modal app list` / the app logs), fetch
+# the CSVs from the Volume into frontend/public/data/ (seconds; verifies
+# the manifest's pin and file list first)
+modal run scripts/modal_pipeline.py::fetch
+# equivalent manual fetch:
+#   modal volume get co-initiative-195-results / frontend/public/data/
 
 # Example household profiles + income sweeps (local, no Modal)
 .venv/Scripts/python.exe scripts/compute_example_households.py

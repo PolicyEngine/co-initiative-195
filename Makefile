@@ -1,6 +1,6 @@
 .PHONY: dev dev-frontend
 .PHONY: build test test-python lint clean install
-.PHONY: pipeline example-households
+.PHONY: pipeline pipeline-fetch example-households
 
 # Python module: co_tax_calc (Colorado Initiative 195 / Amendment 87)
 
@@ -41,10 +41,17 @@ clean:
 	cd frontend && if exist .next rmdir /s /q .next
 	cd frontend && if exist node_modules rmdir /s /q node_modules
 
-# Regenerate ALL five CSVs (statewide + districts) in one Modal run on
-# the Populace build P acs-local national dataset (TY2027)
+# Kick off the Modal job that computes ALL five CSVs (statewide +
+# districts) on the Populace build P acs-local national dataset
+# (TY2027). Detach-safe: results are committed to the Modal Volume
+# "co-initiative-195-results" and survive local driver death.
 pipeline:
-	modal run scripts/modal_pipeline.py
+	modal run --detach scripts/modal_pipeline.py::kickoff
+
+# Fetch the committed CSVs from the results Volume into
+# frontend/public/data/ (run after the job completes; seconds)
+pipeline-fetch:
+	modal run scripts/modal_pipeline.py::fetch
 
 # Regenerate example_households.json locally (no Modal)
 example-households:
