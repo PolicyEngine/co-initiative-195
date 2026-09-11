@@ -3,14 +3,14 @@
 For each profile, runs a current-law (flat 4.4%) simulation and an
 Initiative 195 (graduated schedule) simulation at the profile's income
 point, plus an employment-income sweep from $0 to $1,300,000 so the
-chart shows all six brackets — including the 8.4% bracket above $1M.
+chart shows all six brackets -- including the 8.4% bracket above $1M.
 
 Direction and signs follow scripts/DATA_SCHEMA.md:
 
-- ``net_income_change`` = reform − baseline household net income
+- ``net_income_change`` = reform - baseline household net income
   (negative = the household pays more tax under Initiative 195).
 - ``state_tax_change`` / ``federal_tax_change`` are tax-side:
-  reform − baseline tax (positive = pays more tax).
+  reform - baseline tax (positive = pays more tax).
 
 There is no per-provision attribution: Initiative 195 is a single
 provision (one contrib flag), so the GA template's ``provisions`` /
@@ -206,7 +206,7 @@ def sweep_arrays(sim: Simulation) -> dict:
 
 
 def _diff(reform: list[float], baseline: list[float]) -> list[float]:
-    """Element-wise reform − baseline."""
+    """Element-wise reform - baseline."""
     return [r - b for r, b in zip(reform, baseline)]
 
 

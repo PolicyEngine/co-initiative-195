@@ -1,17 +1,31 @@
-"""Modal-based statewide data pipeline for Colorado Initiative 195.
+"""Modal data pipeline for Colorado Initiative 195 (single merged app).
 
-Runs the forward Initiative 195 reform (contrib flag
-``gov.contrib.states.co.progressive_income_tax.in_effect`` = true from
-2027) against the Colorado state dataset on Modal for tax year 2027.
+Runs ONE national baseline and ONE national reform Microsimulation for
+tax year 2027 on the Populace build P ACS local-area dataset and
+produces BOTH the statewide CSVs and the congressional-district CSV
+from that single pass (the two-app statewide/district split from the
+GA template is gone -- no reason to run a 1.6M-household simulation
+twice).
+
+Dataset (single national file, ~1.6M households, PUMA-assigned
+CD-119 / county / state geography):
+    repo_id  policyengine/populace-us (HF dataset repo)
+    revision populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z
+    filename populace_us_2024_acs_local.h5
+Loaded FUTA-template style: hf_hub_download(...) then
+Microsimulation(dataset=<local path>). Colorado = state_fips 8;
+districts = congressional_district_geoid 801..808 (SSDD encoding,
+verified empirically against the h5).
 
 Direction and signs follow scripts/DATA_SCHEMA.md: baseline = current
-law (flat 4.4%), reform = Initiative 195 graduated schedule, every
-change is ``reform - baseline``. Revenue impacts are government-side
-(positive = more revenue); household amounts are household-side
-(negative = pays more tax).
+law (flat 4.4%), reform = Initiative 195 (contrib flag from 2027);
+every change is reform - baseline. The compute delegates to
+co_tax_calc.microsimulation.calculate_impacts, which raises at startup
+if the reform moves no CO income-tax revenue (stale-pin guard) or if
+the geography columns stop matching expectations.
 
-Outputs (frontend/public/data/): metrics.csv,
-distributional_impact.csv, winners_losers.csv, income_brackets.csv.
+Outputs (frontend/public/data/): metrics.csv, distributional_impact.csv,
+winners_losers.csv, income_brackets.csv, congressional_districts.csv.
 
 Usage:
     modal run scripts/modal_pipeline.py
@@ -21,17 +35,16 @@ import os
 
 import modal
 
-# Exact policyengine-us pin — first release containing PR #9431
+# Exact policyengine-us pin -- first release containing PR #9431
 # (Colorado Initiative 195 graduated income tax contributed reform).
-# Mirrored in pyproject.toml, co_tax_calc/reforms.py, and
-# scripts/modal_district_pipeline.py. Keep all four in sync.
+# Mirrored in pyproject.toml and co_tax_calc/reforms.py. Keep all
+# three in sync. Do NOT switch to the `policyengine` wrapper package:
+# its latest bundle pins policyengine-us 1.764.6, which predates the
+# contrib parameter.
 POLICYENGINE_US_PIN = "policyengine-us==1.825.0"
 
 # Initiative 195's first tax year; the dashboard covers this single year.
 YEAR = 2027
-
-# Colorado state dataset on HuggingFace.
-CO_DATASET = "hf://policyengine/policyengine-us-data/states/CO.h5"
 
 app = modal.App("co-initiative-195-pipeline")
 
@@ -41,42 +54,43 @@ image = (
         POLICYENGINE_US_PIN,
         "numpy>=1.24.0",
         "pandas>=2.0.0",
+        "tables>=3.8.0",  # pandas-HDF reader for the populace h5
         "huggingface_hub",
     )
     # Ship the local calculation module so the aggregate math (and its
-    # startup sanity check) lives in exactly one place.
+    # sanity checks) lives in exactly one place.
     .add_local_python_source("co_tax_calc")
 )
 
 
 @app.function(
     image=image,
-    memory=16384,  # 16GB is plenty for a single-state dataset
-    timeout=1800,
+    memory=65536,  # 64GB: two full national sims (~1.6M households)
+    timeout=3 * 3600,
     retries=1,
 )
-def calculate_statewide(year: int) -> dict:
-    """Calculate the statewide Initiative 195 impact on Modal.
+def calculate_all(year: int) -> dict:
+    """Run the national pass on Modal; return statewide + districts."""
+    from co_tax_calc.microsimulation import (
+        POPULACE_FILENAME,
+        POPULACE_REVISION,
+        calculate_impacts,
+    )
 
-    Delegates to ``co_tax_calc.microsimulation.calculate_aggregate_impact``,
-    which raises if the reform produces no CO income-tax revenue delta
-    (guards against a pin that lacks PR #9431).
-    """
-    from co_tax_calc.microsimulation import calculate_aggregate_impact
-
-    print(f"Starting statewide calculation for TY{year}...")
-    result = calculate_aggregate_impact(year=year)
-    result["year"] = year
+    print(f"Starting Colorado Initiative 195 calculation for TY{year}...")
+    print(f"Dataset: {POPULACE_FILENAME} @ {POPULACE_REVISION}")
+    result = calculate_impacts(year=year)
     print(
-        f"  TY{year} complete. CO revenue impact: "
-        f"${result['budget']['state_tax_revenue_impact']:,.0f}"
+        "  Done. CO revenue impact: "
+        f"${result['statewide']['budget']['state_tax_revenue_impact']:,.0f}; "
+        f"{len(result['districts'])} districts."
     )
     return result
 
 
 @app.local_entrypoint()
 def main():
-    """Run the statewide pipeline on Modal and save CSVs locally."""
+    """Run the pipeline on Modal and save all CSVs locally."""
     import pandas as pd
 
     output_dir = os.path.join(
@@ -87,13 +101,14 @@ def main():
     )
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Running Colorado Initiative 195 microsimulation for TY{YEAR} on Modal...")
+    print(f"Running Colorado Initiative 195 pipeline for TY{YEAR} on Modal...")
     print(f"Pin: {POLICYENGINE_US_PIN}")
-    print(f"Dataset: {CO_DATASET}")
     print(f"Output directory: {output_dir}")
 
-    result = calculate_statewide.remote(YEAR)
-    year = result["year"]
+    result = calculate_all.remote(YEAR)
+    statewide = result["statewide"]
+    districts = result["districts"]
+    year = YEAR
 
     # distributional_impact.csv
     distributional_rows = [
@@ -101,42 +116,44 @@ def main():
             "year": year,
             "decile": decile,
             "average_change": round(avg, 2),
-            "relative_change": round(result["decile"]["relative"][decile], 6),
+            "relative_change": round(
+                statewide["decile"]["relative"][decile], 6
+            ),
         }
-        for decile, avg in result["decile"]["average"].items()
+        for decile, avg in statewide["decile"]["average"].items()
     ]
 
     # metrics.csv
     metrics = [
-        ("budgetary_impact", result["budget"]["budgetary_impact"]),
-        ("federal_tax_revenue_impact", result["budget"]["federal_tax_revenue_impact"]),
-        ("state_tax_revenue_impact", result["budget"]["state_tax_revenue_impact"]),
-        ("tax_revenue_impact", result["budget"]["tax_revenue_impact"]),
-        ("households", result["budget"]["households"]),
-        ("avg_household_net_income_change", result["avg_household_net_income_change"]),
-        ("total_cost", result["total_cost"]),
-        ("beneficiaries", result["beneficiaries"]),
-        ("avg_benefit", result["avg_benefit"]),
-        ("winners", result["winners"]),
-        ("losers", result["losers"]),
-        ("winners_rate", result["winners_rate"]),
-        ("losers_rate", result["losers_rate"]),
-        ("poverty_baseline_rate", result["poverty_baseline_rate"]),
-        ("poverty_reform_rate", result["poverty_reform_rate"]),
-        ("poverty_rate_change", result["poverty_rate_change"]),
-        ("poverty_percent_change", result["poverty_percent_change"]),
-        ("child_poverty_baseline_rate", result["child_poverty_baseline_rate"]),
-        ("child_poverty_reform_rate", result["child_poverty_reform_rate"]),
-        ("child_poverty_rate_change", result["child_poverty_rate_change"]),
-        ("child_poverty_percent_change", result["child_poverty_percent_change"]),
-        ("deep_poverty_baseline_rate", result["deep_poverty_baseline_rate"]),
-        ("deep_poverty_reform_rate", result["deep_poverty_reform_rate"]),
-        ("deep_poverty_rate_change", result["deep_poverty_rate_change"]),
-        ("deep_poverty_percent_change", result["deep_poverty_percent_change"]),
-        ("deep_child_poverty_baseline_rate", result["deep_child_poverty_baseline_rate"]),
-        ("deep_child_poverty_reform_rate", result["deep_child_poverty_reform_rate"]),
-        ("deep_child_poverty_rate_change", result["deep_child_poverty_rate_change"]),
-        ("deep_child_poverty_percent_change", result["deep_child_poverty_percent_change"]),
+        ("budgetary_impact", statewide["budget"]["budgetary_impact"]),
+        ("federal_tax_revenue_impact", statewide["budget"]["federal_tax_revenue_impact"]),
+        ("state_tax_revenue_impact", statewide["budget"]["state_tax_revenue_impact"]),
+        ("tax_revenue_impact", statewide["budget"]["tax_revenue_impact"]),
+        ("households", statewide["budget"]["households"]),
+        ("avg_household_net_income_change", statewide["avg_household_net_income_change"]),
+        ("total_cost", statewide["total_cost"]),
+        ("beneficiaries", statewide["beneficiaries"]),
+        ("avg_benefit", statewide["avg_benefit"]),
+        ("winners", statewide["winners"]),
+        ("losers", statewide["losers"]),
+        ("winners_rate", statewide["winners_rate"]),
+        ("losers_rate", statewide["losers_rate"]),
+        ("poverty_baseline_rate", statewide["poverty_baseline_rate"]),
+        ("poverty_reform_rate", statewide["poverty_reform_rate"]),
+        ("poverty_rate_change", statewide["poverty_rate_change"]),
+        ("poverty_percent_change", statewide["poverty_percent_change"]),
+        ("child_poverty_baseline_rate", statewide["child_poverty_baseline_rate"]),
+        ("child_poverty_reform_rate", statewide["child_poverty_reform_rate"]),
+        ("child_poverty_rate_change", statewide["child_poverty_rate_change"]),
+        ("child_poverty_percent_change", statewide["child_poverty_percent_change"]),
+        ("deep_poverty_baseline_rate", statewide["deep_poverty_baseline_rate"]),
+        ("deep_poverty_reform_rate", statewide["deep_poverty_reform_rate"]),
+        ("deep_poverty_rate_change", statewide["deep_poverty_rate_change"]),
+        ("deep_poverty_percent_change", statewide["deep_poverty_percent_change"]),
+        ("deep_child_poverty_baseline_rate", statewide["deep_child_poverty_baseline_rate"]),
+        ("deep_child_poverty_reform_rate", statewide["deep_child_poverty_reform_rate"]),
+        ("deep_child_poverty_rate_change", statewide["deep_child_poverty_rate_change"]),
+        ("deep_child_poverty_percent_change", statewide["deep_child_poverty_percent_change"]),
     ]
     metrics_rows = [
         {"year": year, "metric": metric, "value": value}
@@ -144,7 +161,7 @@ def main():
     ]
 
     # winners_losers.csv
-    intra = result["intra_decile"]
+    intra = statewide["intra_decile"]
     winners_losers_rows = [
         {
             "year": year,
@@ -177,14 +194,18 @@ def main():
             "total_cost": b["total_cost"],
             "avg_benefit": b["avg_benefit"],
         }
-        for b in result["by_income_bracket"]
+        for b in statewide["by_income_bracket"]
     ]
+
+    # congressional_districts.csv
+    district_rows = sorted(districts, key=lambda r: r["district"])
 
     for rows, filename in [
         (distributional_rows, "distributional_impact.csv"),
         (metrics_rows, "metrics.csv"),
         (winners_losers_rows, "winners_losers.csv"),
         (income_bracket_rows, "income_brackets.csv"),
+        (district_rows, "congressional_districts.csv"),
     ]:
         filepath = os.path.join(output_dir, filename)
         pd.DataFrame(rows).to_csv(filepath, index=False)

@@ -4,9 +4,27 @@ Authoritative schema for every file the Python pipelines write into
 `frontend/public/data/`. Builder B codes `frontend/lib` consumers against this
 file. Produced by:
 
-- `scripts/modal_pipeline.py` — statewide CSVs (Modal)
-- `scripts/modal_district_pipeline.py` — `congressional_districts.csv` (Modal)
+- `scripts/modal_pipeline.py` — ALL five CSVs (single merged Modal app: one
+  national baseline + one national reform pass yields both the statewide CSVs
+  and `congressional_districts.csv`)
 - `scripts/compute_example_households.py` — `example_households.json` (local)
+
+## Dataset provenance (microsimulation CSVs)
+
+Single national Populace build P ACS local-area file (~1.6M households,
+PUMA-assigned CD-119 / county / state geography), loaded FUTA-template style
+(`hf_hub_download` then `Microsimulation(dataset=<path>)`):
+
+- `repo_id`: `policyengine/populace-us` (HF **dataset** repo)
+- `revision`: `populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z`
+- `filename`: `populace_us_2024_acs_local.h5`
+
+Colorado rows: `state_fips == 8`. Districts: `congressional_district_geoid`
+in 801..808 (integer SSDD = state FIPS × 100 + district number; verified
+empirically against the h5). Because statewide and district results come from
+the same national file and the same pass, district totals aggregate
+consistently to the statewide totals (unlike the old per-district ECPS
+files, which were calibrated independently).
 
 ## Global conventions
 
@@ -71,7 +89,7 @@ One row per income decile.
 | column | meaning |
 |---|---|
 | `year` | 2027 |
-| `decile` | `1`..`10` (household income decile, baseline) |
+| `decile` | `1`..`10` — **Colorado-relative** decile (weighted deciles of baseline household net income computed among Colorado households, so decile 1 = poorest tenth of Colorado, not of the nation) |
 | `average_change` | mean household net-income change in the decile, $ (negative = tax increase) |
 | `relative_change` | decile total net-income change ÷ decile total baseline net income (fraction, e.g. `-0.004` = −0.4%) |
 
@@ -125,8 +143,13 @@ One row per district, CO-01..CO-08 (FIPS 08), year 2027.
 | `state` | `CO` |
 | `year` | 2027 |
 
-Caveat (surface in the validation tab): district files are calibrated
-independently; district results do not sum exactly to the statewide totals.
+Provenance note (surface in the validation tab): districts come from the
+SAME national pass as the statewide CSVs (grouped by
+`congressional_district_geoid`), so district totals aggregate consistently
+to statewide. The old "independently calibrated district files do not sum
+to statewide" caveat no longer applies; the remaining caveat is that
+district geography is PUMA-assigned (households are placed in CD-119
+districts from PUMA-to-district mappings).
 
 ## example_households.json
 

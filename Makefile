@@ -1,6 +1,6 @@
 .PHONY: dev dev-frontend
 .PHONY: build test test-python lint clean install
-.PHONY: pipeline pipeline-districts example-households
+.PHONY: pipeline example-households
 
 # Python module: co_tax_calc (Colorado Initiative 195 / Amendment 87)
 
@@ -41,13 +41,10 @@ clean:
 	cd frontend && if exist .next rmdir /s /q .next
 	cd frontend && if exist node_modules rmdir /s /q node_modules
 
-# Regenerate statewide aggregate CSVs on Modal (TY2027, CO.h5)
+# Regenerate ALL five CSVs (statewide + districts) in one Modal run on
+# the Populace build P acs-local national dataset (TY2027)
 pipeline:
 	modal run scripts/modal_pipeline.py
-
-# Regenerate the CO-01..CO-08 congressional-district CSV on Modal
-pipeline-districts:
-	modal run scripts/modal_district_pipeline.py
 
 # Regenerate example_households.json locally (no Modal)
 example-households:

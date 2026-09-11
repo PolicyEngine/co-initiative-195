@@ -17,7 +17,7 @@ from .reforms import (
     create_co_reform,
     graduated_tax,
 )
-from .microsimulation import calculate_aggregate_impact
+from .microsimulation import calculate_aggregate_impact, calculate_impacts
 
 __all__ = [
     "BASELINE_FLAT_RATE",
@@ -27,6 +27,7 @@ __all__ = [
     "build_household_situation",
     "calculate_household_impact",
     "calculate_aggregate_impact",
+    "calculate_impacts",
     "create_co_reform",
     "graduated_tax",
 ]

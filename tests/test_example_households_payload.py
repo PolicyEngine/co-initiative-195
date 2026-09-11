@@ -5,7 +5,7 @@ file directly; a typo in ``scripts/compute_example_households.py``
 (dropping a key, renaming a field, flipping a sign) would silently
 produce broken UI without these tests.
 
-Pure schema checks against the committed JSON — they do not re-run any
+Pure schema checks against the committed JSON -- they do not re-run any
 PolicyEngine sims. Schema: scripts/DATA_SCHEMA.md.
 """
 
@@ -71,7 +71,7 @@ def test_top_level_changes_present(households: list[dict]) -> None:
 
 
 def test_no_ga_provision_keys(households: list[dict]) -> None:
-    """Initiative 195 is a single provision — the GA template's
+    """Initiative 195 is a single provision -- the GA template's
     per-provision attribution keys must be gone."""
     for h in households:
         assert "provisions" not in h

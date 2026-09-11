@@ -20,7 +20,7 @@ class TestReformParams:
     """Tests for the REFORM_PARAMS contrib-flag override."""
 
     def test_single_parameter(self):
-        """Initiative 195 is a single contrib flag — nothing else."""
+        """Initiative 195 is a single contrib flag -- nothing else."""
         assert list(REFORM_PARAMS.keys()) == [
             "gov.contrib.states.co.progressive_income_tax.in_effect"
         ]

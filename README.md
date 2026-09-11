@@ -24,10 +24,19 @@ Official text: [Initiative 195 final filing](https://www.sos.state.co.us/pubs/el
   2027-01-01 (policyengine-us PR #9431). Everywhere in this repository,
   `impact = reform − baseline`.
 - **Pin**: `policyengine-us==1.825.0` — the first release containing PR
-  #9431. The pin lives in four synchronized places: `pyproject.toml`,
-  `co_tax_calc/reforms.py`, `scripts/modal_pipeline.py`,
-  `scripts/modal_district_pipeline.py`. Each Modal pipeline raises at startup
-  if the reform produces no CO income-tax revenue delta (stale-pin guard).
+  #9431. The pin lives in three synchronized places: `pyproject.toml`,
+  `co_tax_calc/reforms.py`, `scripts/modal_pipeline.py`. The pipeline raises
+  at startup if the reform produces no CO income-tax revenue delta
+  (stale-pin guard). Do not substitute the `policyengine` wrapper package —
+  its latest bundle pins policyengine-us 1.764.6, which predates the contrib
+  parameter.
+- **Dataset**: Populace build P ACS local-area national file (~1.6M
+  households, PUMA-assigned CD-119 / county / state geography) from the HF
+  dataset repo `policyengine/populace-us`, revision
+  `populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z`, file
+  `populace_us_2024_acs_local.h5`, loaded via `hf_hub_download` then
+  `Microsimulation(dataset=<path>)`. Colorado = `state_fips` 8; districts =
+  `congressional_district_geoid` 801..808 (SSDD encoding).
 - **Year**: tax year 2027 only.
 - **Python package**: `co_tax_calc/` (reform definition, household situation
   builder, statewide microsimulation).
@@ -43,11 +52,9 @@ Output schemas are documented in [`scripts/DATA_SCHEMA.md`](scripts/DATA_SCHEMA.
 uv venv --python 3.13 .venv
 uv pip install -p .venv/Scripts/python.exe -e ".[dev]"
 
-# Statewide CSVs (Modal; hf://policyengine/policyengine-us-data/states/CO.h5)
+# ALL five CSVs — statewide + congressional districts — in one Modal run
+# (single national baseline + reform pass on the build P acs-local file)
 modal run scripts/modal_pipeline.py
-
-# CO-01..CO-08 district CSV (Modal; districts/CO-0N.h5, FIPS 08)
-modal run scripts/modal_district_pipeline.py
 
 # Example household profiles + income sweeps (local, no Modal)
 .venv/Scripts/python.exe scripts/compute_example_households.py
@@ -102,8 +109,10 @@ npm run build  # production build (basePath /us/co-initiative-195)
   $500,000, and overstates tax above $500,000.
 - The corporate schedule (Section 4) and TABOR / Colorado's Future Fund
   accounting (Section 5) are outside the household model's scope.
-- District files are calibrated independently; district results do not sum
-  exactly to the statewide totals.
+- Statewide and district results come from the same national pass on one
+  file, so district totals aggregate consistently to statewide; district
+  geography is PUMA-assigned, however, so households are placed in CD-119
+  districts via PUMA-to-district mappings rather than exact addresses.
 
 ## Deploy
 

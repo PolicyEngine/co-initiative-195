@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-# Exact policyengine-us pin — first release containing PR #9431
+# Exact policyengine-us pin -- first release containing PR #9431
 # (Colorado Initiative 195 graduated income tax contributed reform).
 # Mirrored in pyproject.toml, scripts/modal_pipeline.py, and
 # scripts/modal_district_pipeline.py. Keep all four in sync.
