@@ -1,45 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import parseCSV from "@/lib/parseCSV";
 import { AggregateImpactResponse, IntraDecileAll, IntraDecileDeciles } from "@/lib/types";
-
-// Georgia 2026 tax changes (HB463) dashboard — year is locked to 2026 throughout.
-export const GA_DASHBOARD_YEAR = 2026;
+import { CO_DASHBOARD_YEAR } from "@/lib/household";
 
 async function fetchCSV(filename: string): Promise<Record<string, string | number>[]> {
   // Use same default as next.config.js
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH !== undefined
     ? process.env.NEXT_PUBLIC_BASE_PATH
-    : "/us/georgia-2026-tax-changes";
+    : "/us/co-initiative-195";
   const res = await fetch(`${basePath}/data/${filename}`);
   if (!res.ok) throw new Error(`Failed to load ${filename}`);
   const text = await res.text();
   return parseCSV(text);
 }
 
-// Fetch the national congressional_districts.csv and filter to Georgia (state="GA").
-// Shared by components that need district-level numbers for the Georgia 2026
-// tax changes (HB463) dashboard.
-export function useGADistrictImpact(enabled: boolean, year: number = GA_DASHBOARD_YEAR) {
-  return useQuery<Record<string, string | number>[]>({
-    queryKey: ["gaDistrictImpact", year],
-    queryFn: async () => {
-      const rows = await fetchCSV("congressional_districts_revert.csv");
-      return rows.filter(
-        (r) => r.state === "GA" && Number(r.year) === year,
-      );
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  });
-}
-
 function buildAggregateResponse(year: number): Promise<AggregateImpactResponse> {
   return Promise.all([
-    fetchCSV("distributional_impact_revert.csv"),
-    fetchCSV("metrics_revert.csv"),
-    fetchCSV("winners_losers_revert.csv"),
-    fetchCSV("income_brackets_revert.csv"),
+    fetchCSV("distributional_impact.csv"),
+    fetchCSV("metrics.csv"),
+    fetchCSV("winners_losers.csv"),
+    fetchCSV("income_brackets.csv"),
   ]).then(([distributional, metrics, winnersLosers, incomeBrackets]) => {
     // Filter by year
     const dist = distributional.filter((r) => r.year === year);
@@ -52,10 +32,10 @@ function buildAggregateResponse(year: number): Promise<AggregateImpactResponse> 
     // available" panel instead of crashing on undefined.
     if (met.length === 0 || wl.length === 0 || dist.length === 0) {
       throw new Error(
-        `Precomputed aggregate data for ${year} is not yet available. ` +
-          `Run the Modal precompute to populate metrics_revert.csv, ` +
-          `winners_losers_revert.csv, distributional_impact_revert.csv, ` +
-          `and income_brackets_revert.csv.`,
+        `Precomputed statewide data for ${year} is not yet available. ` +
+          `Run the Modal precompute to populate metrics.csv, ` +
+          `winners_losers.csv, distributional_impact.csv, ` +
+          `and income_brackets.csv.`,
       );
     }
 
@@ -74,7 +54,7 @@ function buildAggregateResponse(year: number): Promise<AggregateImpactResponse> 
     const allRow = wl.find((r) => r.decile === "All");
     if (!allRow) {
       throw new Error(
-        `winners_losers_revert.csv is missing the "All" row for ${year}.`,
+        `winners_losers.csv is missing the "All" row for ${year}.`,
       );
     }
     const intraAll: IntraDecileAll = {
@@ -98,12 +78,14 @@ function buildAggregateResponse(year: number): Promise<AggregateImpactResponse> 
 
     return {
       budget: {
-        baseline_net_income: m.baseline_net_income,
+        // metrics.csv (per scripts/DATA_SCHEMA.md) does not include
+        // baseline_net_income or benefit_spending_impact; default to 0.
+        baseline_net_income: m.baseline_net_income ?? 0,
         budgetary_impact: m.budgetary_impact,
         federal_tax_revenue_impact: m.federal_tax_revenue_impact,
         state_tax_revenue_impact: m.state_tax_revenue_impact,
         tax_revenue_impact: m.tax_revenue_impact,
-        benefit_spending_impact: m.benefit_spending_impact,
+        benefit_spending_impact: m.benefit_spending_impact ?? 0,
         households: m.households,
       },
       decile: { average: decileAverage, relative: decileRelative },
@@ -153,68 +135,11 @@ function buildAggregateResponse(year: number): Promise<AggregateImpactResponse> 
 
 export function useAggregateImpact(
   enabled: boolean,
-  year: number = 2026,
+  year: number = CO_DASHBOARD_YEAR,
 ) {
   return useQuery<AggregateImpactResponse>({
     queryKey: ["aggregateImpact", year],
     queryFn: () => buildAggregateResponse(year),
-    enabled,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  });
-}
-
-export function useTenYearTotal(enabled: boolean) {
-  return useQuery<number>({
-    queryKey: ["tenYearTotal"],
-    queryFn: async () => {
-      const rows = await fetchCSV("metrics_revert.csv");
-      const years = Array.from({ length: 10 }, (_, i) => 2026 + i);
-      return years.reduce((sum, year) => {
-        const row = rows.find(
-          (r) => r.year === year && r.metric === "budgetary_impact"
-        );
-        return sum + (row ? (row.value as number) : 0);
-      }, 0);
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  });
-}
-
-export function useTenYearFederalTotal(enabled: boolean) {
-  return useQuery<number>({
-    queryKey: ["tenYearFederalTotal"],
-    queryFn: async () => {
-      const rows = await fetchCSV("metrics_revert.csv");
-      const years = Array.from({ length: 10 }, (_, i) => 2026 + i);
-      return years.reduce((sum, year) => {
-        const row = rows.find(
-          (r) => r.year === year && r.metric === "federal_tax_revenue_impact"
-        );
-        return sum + (row ? (row.value as number) : 0);
-      }, 0);
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  });
-}
-
-export function useTenYearStateTotal(enabled: boolean) {
-  return useQuery<number>({
-    queryKey: ["tenYearStateTotal"],
-    queryFn: async () => {
-      const rows = await fetchCSV("metrics_revert.csv");
-      const years = Array.from({ length: 10 }, (_, i) => 2026 + i);
-      return years.reduce((sum, year) => {
-        const row = rows.find(
-          (r) => r.year === year && r.metric === "state_tax_revenue_impact"
-        );
-        return sum + (row ? (row.value as number) : 0);
-      }, 0);
-    },
     enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

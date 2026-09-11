@@ -4,12 +4,15 @@
  * Calls https://api.policyengine.org/us/calculate directly - no backend
  * server required.
  *
- * The PolicyEngine baseline already includes HB463 (the 2026 Georgia
- * tax-changes act), so `current_law` is computed without a reform and
- * `pre_hb463` is computed with the inverse reform that reverts Georgia
- * parameters to their pre-HB463 values. The displayed impact equals:
+ * The PolicyEngine baseline is current law (Colorado's 4.4% flat income
+ * tax). The reform applies Initiative 195's graduated schedule via the
+ * gov.contrib.states.co.progressive_income_tax.in_effect parameter.
+ * The displayed impact equals:
  *
- *   impact = current_law - pre_hb463
+ *   impact = reform - baseline
+ *
+ * so a negative net-income change means the household pays more tax
+ * under the graduated schedule.
  */
 
 import {
@@ -98,87 +101,87 @@ export const api = {
     const policy = buildReformPolicy();
     const yearStr = String(request.year);
 
-    // currentLaw is the unmodified PE-US baseline (already includes
-    // HB463). preHb463 applies the inverse reform.
-    const [currentLawResult, preHb463Result] = await Promise.all([
+    // baseline is the unmodified PE-US current law (4.4% flat tax);
+    // reform applies the Initiative 195 graduated schedule.
+    const [baselineResult, reformResult] = await Promise.all([
       peCalculate({ household }),
       peCalculate({ household, policy }),
     ]);
 
-    const currentLawNetIncome: number[] =
-      currentLawResult.result.households["your household"][
+    const baselineNetIncome: number[] =
+      baselineResult.result.households["your household"][
         "household_net_income"
       ][yearStr];
-    const preHb463NetIncome: number[] =
-      preHb463Result.result.households["your household"][
+    const reformNetIncome: number[] =
+      reformResult.result.households["your household"][
         "household_net_income"
       ][yearStr];
     const incomeRange: number[] =
-      currentLawResult.result.people["you"][
+      baselineResult.result.people["you"][
         "employment_income"
       ][yearStr];
 
-    const currentLawStateTax: number[] =
-      currentLawResult.result.tax_units["your tax unit"]["ga_income_tax"][
+    const baselineStateTax: number[] =
+      baselineResult.result.tax_units["your tax unit"]["co_income_tax"][
         yearStr
       ];
-    const preHb463StateTax: number[] =
-      preHb463Result.result.tax_units["your tax unit"]["ga_income_tax"][
+    const reformStateTax: number[] =
+      reformResult.result.tax_units["your tax unit"]["co_income_tax"][
         yearStr
       ];
 
-    const currentLawFederalTax: number[] =
-      currentLawResult.result.tax_units["your tax unit"]["income_tax"][yearStr];
-    const preHb463FederalTax: number[] =
-      preHb463Result.result.tax_units["your tax unit"]["income_tax"][yearStr];
+    const baselineFederalTax: number[] =
+      baselineResult.result.tax_units["your tax unit"]["income_tax"][yearStr];
+    const reformFederalTax: number[] =
+      reformResult.result.tax_units["your tax unit"]["income_tax"][yearStr];
 
-    // Impact = current_law - pre_hb463.
-    const netIncomeChange = currentLawNetIncome.map(
-      (val, i) => val - preHb463NetIncome[i]
+    // Impact = reform - baseline.
+    const netIncomeChange = reformNetIncome.map(
+      (val, i) => val - baselineNetIncome[i]
     );
-    const federalTaxChange = currentLawFederalTax.map(
-      (val, i) => val - preHb463FederalTax[i]
+    const federalTaxChange = reformFederalTax.map(
+      (val, i) => val - baselineFederalTax[i]
     );
-    const stateTaxChange = currentLawStateTax.map(
-      (val, i) => val - preHb463StateTax[i]
+    const stateTaxChange = reformStateTax.map(
+      (val, i) => val - baselineStateTax[i]
     );
 
-    const currentLawAtIncome = interpolate(
+    const baselineAtIncome = interpolate(
       incomeRange,
-      currentLawNetIncome,
+      baselineNetIncome,
       request.income
     );
-    const preHb463AtIncome = interpolate(
+    const reformAtIncome = interpolate(
       incomeRange,
-      preHb463NetIncome,
+      reformNetIncome,
       request.income
     );
-    const currentLawFederalTaxAtIncome = interpolate(
+    const baselineFederalTaxAtIncome = interpolate(
       incomeRange,
-      currentLawFederalTax,
+      baselineFederalTax,
       request.income
     );
-    const preHb463FederalTaxAtIncome = interpolate(
+    const reformFederalTaxAtIncome = interpolate(
       incomeRange,
-      preHb463FederalTax,
+      reformFederalTax,
       request.income
     );
-    const currentLawStateTaxAtIncome = interpolate(
+    const baselineStateTaxAtIncome = interpolate(
       incomeRange,
-      currentLawStateTax,
+      baselineStateTax,
       request.income
     );
-    const preHb463StateTaxAtIncome = interpolate(
+    const reformStateTaxAtIncome = interpolate(
       incomeRange,
-      preHb463StateTax,
+      reformStateTax,
       request.income
     );
 
     const federalTaxChangeAtIncome =
-      currentLawFederalTaxAtIncome - preHb463FederalTaxAtIncome;
+      reformFederalTaxAtIncome - baselineFederalTaxAtIncome;
     const stateTaxChangeAtIncome =
-      currentLawStateTaxAtIncome - preHb463StateTaxAtIncome;
-    const netIncomeChangeAtIncome = currentLawAtIncome - preHb463AtIncome;
+      reformStateTaxAtIncome - baselineStateTaxAtIncome;
+    const netIncomeChangeAtIncome = reformAtIncome - baselineAtIncome;
 
     return {
       income_range: incomeRange,
@@ -187,8 +190,8 @@ export const api = {
       stateTaxChange,
       netIncomeChange,
       benefit_at_income: {
-        baseline: preHb463AtIncome,
-        reform: currentLawAtIncome,
+        baseline: baselineAtIncome,
+        reform: reformAtIncome,
         difference: netIncomeChangeAtIncome,
         federal_tax_change: federalTaxChangeAtIncome,
         state_tax_change: stateTaxChangeAtIncome,

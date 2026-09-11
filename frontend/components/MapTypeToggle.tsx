@@ -1,9 +1,10 @@
 'use client';
 
-// The Georgia 2026 tax changes (HB463) dashboard uses a Mercator-projected
-// choropleth for the 14 congressional districts; a geographic/hex map-type
-// toggle is no longer meaningful. This stub is kept only to preserve the
-// import path used by legacy callers; it renders nothing.
+// The Colorado Initiative 195 dashboard uses a single CO-only SVG
+// choropleth for the 8 congressional districts; a geographic/hex
+// map-type toggle is not meaningful at this scale. This stub is kept
+// only to preserve the import path used by legacy callers; it renders
+// nothing.
 
 interface Props {
   mapType?: 'geographic' | 'hex';

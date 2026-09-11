@@ -1,29 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import GADistrictMap, { GADistrictData } from './DynamicDistrictMap';
+import CODistrictMap, { CODistrictData } from './DynamicDistrictMap';
 import ChartWatermark from './ChartWatermark';
+import { CO_DASHBOARD_YEAR } from '@/lib/household';
 
 interface Props {
   year?: number;
 }
 
-// Georgia representatives (119th Congress)
-const GA_REPRESENTATIVES: Record<string, { name: string; party: 'R' | 'D' }> = {
-  '1': { name: 'Buddy Carter', party: 'R' },
-  '2': { name: 'Sanford Bishop', party: 'D' },
-  '3': { name: 'Brian Jack', party: 'R' },
-  '4': { name: 'Hank Johnson', party: 'D' },
-  '5': { name: 'Nikema Williams', party: 'D' },
-  '6': { name: 'Rich McCormick', party: 'R' },
-  '7': { name: 'Lucy McBath', party: 'D' },
-  '8': { name: 'Austin Scott', party: 'R' },
-  '9': { name: 'Andrew Clyde', party: 'R' },
-  '10': { name: 'Mike Collins', party: 'R' },
-  '11': { name: 'Barry Loudermilk', party: 'R' },
-  '12': { name: 'Rick Allen', party: 'R' },
-  '13': { name: 'David Scott', party: 'D' },
-  '14': { name: 'Clay Fuller', party: 'R' },
+// Colorado representatives (119th Congress)
+const CO_REPRESENTATIVES: Record<string, { name: string; party: 'R' | 'D' }> = {
+  '1': { name: 'Diana DeGette', party: 'D' },
+  '2': { name: 'Joe Neguse', party: 'D' },
+  '3': { name: 'Jeff Hurd', party: 'R' },
+  '4': { name: 'Lauren Boebert', party: 'R' },
+  '5': { name: 'Jeff Crank', party: 'R' },
+  '6': { name: 'Jason Crow', party: 'D' },
+  '7': { name: 'Brittany Pettersen', party: 'D' },
+  '8': { name: 'Gabe Evans', party: 'R' },
 };
 
 function partyColor(party: 'R' | 'D' | undefined) {
@@ -32,26 +27,20 @@ function partyColor(party: 'R' | 'D' | undefined) {
   return '#6b7280'; // gray-500
 }
 
-// Georgia district regions (for context in labels)
-const GA_DISTRICT_REGIONS: Record<string, string> = {
-  '1': 'Savannah & Coast',
-  '2': 'Southwest GA (Albany)',
-  '3': 'West GA (Columbus / Newnan)',
-  '4': 'East Metro Atlanta (DeKalb)',
-  '5': 'Atlanta (Fulton)',
-  '6': 'North Fulton / Cherokee / Forsyth',
-  '7': 'West Gwinnett / East Cobb / North Fulton',
-  '8': 'South Central GA (Warner Robins)',
-  '9': 'Northeast GA (Athens-Clarke / Hall)',
-  '10': 'Athens / East Central',
-  '11': 'Northwest Atlanta Metro (Cobb / Cherokee)',
-  '12': 'East GA (Augusta)',
-  '13': 'South Metro Atlanta',
-  '14': 'Northwest GA (Rome / Dalton)',
+// Colorado district regions (for context in labels)
+const CO_DISTRICT_REGIONS: Record<string, string> = {
+  '1': 'Denver',
+  '2': 'Boulder / Fort Collins / north-central mountains',
+  '3': 'Western Slope / Pueblo',
+  '4': 'Eastern Plains / Douglas County',
+  '5': 'Colorado Springs',
+  '6': 'Aurora / south Denver metro',
+  '7': 'Lakewood / central mountains',
+  '8': 'Thornton / Greeley (northern metro)',
 };
 
-export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
-  const [data, setData] = useState<GADistrictData[]>([]);
+export default function CongressionalDistrictImpact({ year = CO_DASHBOARD_YEAR }: Props) {
+  const [data, setData] = useState<CODistrictData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
@@ -59,9 +48,9 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
   useEffect(() => {
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH !== undefined
       ? process.env.NEXT_PUBLIC_BASE_PATH
-      : '/us/georgia-2026-tax-changes';
+      : '/us/co-initiative-195';
 
-    fetch(`${basePath}/data/congressional_districts_revert.csv`)
+    fetch(`${basePath}/data/congressional_districts.csv`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load district data');
         return res.text();
@@ -76,26 +65,26 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
             const val = values[i];
             row[h] = isNaN(Number(val)) ? val : Number(val);
           });
-          return row as unknown as GADistrictData & { state: string; year: number };
+          return row as unknown as CODistrictData & { state: string; year: number };
         });
-        // Filter to Georgia only (state code "GA") and selected year
-        const scRows = rows
-          .filter((r) => r.state === 'GA' && r.year === year)
+        // Filter to Colorado only (state code "CO") and selected year
+        const coRows = rows
+          .filter((r) => r.state === 'CO' && r.year === year)
           .map((r) => {
             const districtNum = String(r.district).split('-')[1] || '';
             const districtId = districtNum.replace(/^0+/, '') || districtNum;
             return {
               ...r,
               district_number: districtId,
-              representative: GA_REPRESENTATIVES[districtId]?.name || '',
-              party: GA_REPRESENTATIVES[districtId]?.party,
-              region: GA_DISTRICT_REGIONS[districtId] || '',
-            } as GADistrictData;
+              representative: CO_REPRESENTATIVES[districtId]?.name || '',
+              party: CO_REPRESENTATIVES[districtId]?.party,
+              region: CO_DISTRICT_REGIONS[districtId] || '',
+            } as CODistrictData;
           })
           .sort((a, b) =>
             Number(a.district_number) - Number(b.district_number)
           );
-        setData(scRows);
+        setData(coRows);
         setLoading(false);
       })
       .catch((err) => {
@@ -113,10 +102,10 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
     return (
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
         <h2 className="text-yellow-800 font-semibold mb-2">
-          Georgia district data not yet available
+          Colorado district data not yet available
         </h2>
         <p className="text-yellow-700">
-          {error || 'Georgia district-level impact data has not been generated yet.'}
+          {error || 'Colorado district-level impact data has not been generated yet.'}
         </p>
         <p className="text-yellow-700 mt-2">
           Run: <code className="bg-yellow-100 px-2 py-1 rounded">modal run scripts/modal_district_pipeline.py</code>
@@ -133,17 +122,18 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
     <div className="space-y-6">
       <div>
         <h3 className="text-xl font-bold text-gray-900 mb-2">
-          Georgia congressional district impacts ({year})
+          Colorado congressional district impacts ({year})
         </h3>
         <p className="text-gray-600">
-          Average household impact by congressional district from the 2026 Georgia tax changes
-          under HB463 (current law vs. pre-HB463 law). Click a district card for detailed impact analysis.
+          Estimated average household net-income change by congressional
+          district under the Initiative 195 graduated schedule vs. current
+          law. Click a district for detailed impact analysis.
         </p>
       </div>
 
       {/* Map */}
       <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <GADistrictMap
+        <CODistrictMap
           data={data}
           selectedDistrict={selectedDistrict}
           onSelect={(districtNum) =>
@@ -164,7 +154,7 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
       ) : (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center">
           <p className="text-gray-500 text-sm">
-            Click a district card above to see detailed impact analysis.
+            Click a district above to see detailed impact analysis.
           </p>
         </div>
       )}
@@ -172,7 +162,7 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
       {/* All districts table */}
       <div>
         <h4 className="text-lg font-semibold text-gray-900 mb-3">
-          All Georgia districts
+          All Colorado districts
         </h4>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -199,7 +189,7 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
                   }
                 >
                   <td className="py-3 px-4 text-gray-700 font-medium">
-                    GA-{String(d.district_number).padStart(2, '0')}
+                    CO-{String(d.district_number).padStart(2, '0')}
                     <span className="block text-xs text-gray-500 font-normal">{d.region}</span>
                   </td>
                   <td className="py-3 px-4" style={{ color: partyColor(d.party) }}>
@@ -224,6 +214,16 @@ export default function CongressionalDistrictImpact({ year = 2026 }: Props) {
           </table>
         </div>
       </div>
+
+      {/* Methodology note */}
+      <p className="text-xs text-gray-500">
+        Winners are households whose net income rises, matching the statewide
+        tab. District estimates use PolicyEngine&apos;s district-calibrated
+        datasets (~9,000 households per district), from the same enhanced CPS
+        family as the statewide estimates. District figures may not exactly
+        aggregate to statewide figures because each district file is
+        calibrated independently.
+      </p>
     </div>
   );
 }
@@ -232,7 +232,7 @@ function DistrictDetailCard({
   district,
   onClose,
 }: {
-  district: GADistrictData;
+  district: CODistrictData;
   onClose: () => void;
 }) {
   const avgChange = district.average_household_income_change;
@@ -249,13 +249,13 @@ function DistrictDetailCard({
         <div className="flex items-center gap-3">
           <span
             className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-white font-bold text-lg"
-            style={{ backgroundColor: isPositive ? '#319795' : isNegative ? '#dc2626' : '#475569' }}
+            style={{ backgroundColor: isPositive ? '#319795' : isNegative ? '#475569' : '#94A3B8' }}
           >
             {district.district_number}
           </span>
           <div>
             <h4 className="text-lg font-semibold text-gray-900">
-              Georgia District {district.district_number}
+              Colorado District {district.district_number}
             </h4>
             <p className="text-sm text-gray-500">
               <span style={{ color: partyColor(district.party) }}>

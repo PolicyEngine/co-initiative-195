@@ -6,21 +6,26 @@ import AggregateImpact from '@/components/AggregateImpact';
 import ExampleHouseholds, { type ExampleHouseholdProfile } from '@/components/ExampleHouseholds';
 import PolicyOverview from '@/components/PolicyOverview';
 import CongressionalDistrictImpact from '@/components/CongressionalDistrictImpact';
+import ValidationMethodology from '@/components/ValidationMethodology';
 import type { HouseholdImpactResponse, HouseholdRequest } from '@/lib/types';
 import { parseHashParams } from '@/lib/embedding';
+import { CO_DASHBOARD_YEAR, CO_SWEEP_MAX } from '@/lib/household';
+
+type TabId = 'overview' | 'household' | 'statewide' | 'districts' | 'validation';
+
+const TAB_CONFIG: { id: TabId; label: string }[] = [
+  { id: 'overview', label: 'Policy overview' },
+  { id: 'household', label: 'Household impact' },
+  { id: 'statewide', label: 'Statewide impact' },
+  { id: 'districts', label: 'Congressional districts' },
+  { id: 'validation', label: 'Validation & methodology' },
+];
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'policy' | 'impact' | 'aggregate' | 'districts'>('policy');
-
-  const TAB_CONFIG = [
-    { id: 'policy' as const, label: 'Policy overview' },
-    { id: 'impact' as const, label: 'Household impact' },
-    { id: 'aggregate' as const, label: 'Statewide impact' },
-    { id: 'districts' as const, label: 'Congressional districts' },
-  ];
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   // Simple tab change handler
-  const handleTabChange = useCallback((tab: 'policy' | 'impact' | 'aggregate' | 'districts') => {
+  const handleTabChange = useCallback((tab: TabId) => {
     setActiveTab(tab);
   }, []);
 
@@ -30,17 +35,19 @@ export default function Home() {
       <div className="bg-primary-500 text-white py-8 px-4 shadow-md">
         <div className="max-w-5xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">
-            Georgia 2026 Tax Changes Calculator
+            Colorado Initiative 195 (Amendment 87) dashboard
           </h1>
           <p className="text-lg opacity-90">
-            See the impact of HB463 on Georgia households
+            Estimate how replacing Colorado&apos;s 4.4% flat income tax with six
+            graduated brackets would affect households, statewide revenue, and
+            each congressional district
           </p>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8">
         {/* Tabs */}
-        <div className="flex space-x-1 mb-4" role="tablist">
+        <div className="flex flex-wrap gap-1 mb-4" role="tablist">
           {TAB_CONFIG.map((tab) => (
             <button
               key={tab.id}
@@ -48,7 +55,7 @@ export default function Home() {
               aria-selected={activeTab === tab.id}
               aria-controls={`tabpanel-${tab.id}`}
               onClick={() => handleTabChange(tab.id)}
-              className={`px-6 py-3 rounded-t-lg font-semibold transition-colors ${
+              className={`px-5 py-3 rounded-t-lg font-semibold transition-colors ${
                 activeTab === tab.id
                   ? 'bg-white text-primary-600 border-t-4 border-primary-500'
                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -65,14 +72,16 @@ export default function Home() {
           id={`tabpanel-${activeTab}`}
           className="bg-white rounded-lg shadow-md p-6"
         >
-          {activeTab === 'policy' ? (
+          {activeTab === 'overview' ? (
             <PolicyOverview />
-          ) : activeTab === 'impact' ? (
+          ) : activeTab === 'household' ? (
             <HouseholdImpactTab />
-          ) : activeTab === 'aggregate' ? (
-            <NationalImpactTab />
-          ) : (
+          ) : activeTab === 'statewide' ? (
+            <StatewideImpactTab />
+          ) : activeTab === 'districts' ? (
             <CongressionalDistrictImpact />
+          ) : (
+            <ValidationMethodology />
           )}
         </div>
       </div>
@@ -85,13 +94,13 @@ function HouseholdImpactTab() {
   // Initialize state from hash parameters if present
   const getInitialValues = () => {
     if (typeof window === 'undefined') {
-      return { income: 50000, age: 35, state: 'GA', married: false, dependents: [5] };
+      return { income: 75000, age: 35, state: 'CO', married: false, dependents: [5] };
     }
     const params = parseHashParams(window.location.hash);
     return {
-      income: params.income ?? 50000,
+      income: params.income ?? 75000,
       age: params.age ?? 35,
-      state: params.state ?? 'GA',
+      state: params.state ?? 'CO',
       married: params.married ?? false,
       dependents: params.dependents ?? [5],
     };
@@ -106,7 +115,7 @@ function HouseholdImpactTab() {
   const [dependentAges, setDependentAges] = useState<number[]>(initialValues.dependents);
   const [income, setIncome] = useState(initialValues.income);
   const [stateCode, setStateCode] = useState(initialValues.state);
-  const [maxEarnings, setMaxEarnings] = useState(100000);
+  const [maxEarnings, setMaxEarnings] = useState(CO_SWEEP_MAX);
   const [triggered, setTriggered] = useState(false);
   const [submittedRequest, setSubmittedRequest] = useState<HouseholdRequest | null>(null);
   const [precomputedImpact, setPrecomputedImpact] =
@@ -174,7 +183,7 @@ function HouseholdImpactTab() {
     age_spouse: married ? ageSpouse : null,
     dependent_ages: dependentAges,
     income,
-    year: 2026,
+    year: CO_DASHBOARD_YEAR,
     max_earnings: maxEarnings,
     state_code: stateCode,
   });
@@ -201,7 +210,7 @@ function HouseholdImpactTab() {
     setAgeSpouse(profile.married ? 35 : null);
     setAgeSpouseRaw('35');
     setDependentAges(profile.dependents);
-    setStateCode('GA');
+    setStateCode('CO');
     const exampleMaxEarnings = response.x_axis_max ?? maxEarnings;
     setMaxEarnings(exampleMaxEarnings);
     setSubmittedRequest({
@@ -209,9 +218,9 @@ function HouseholdImpactTab() {
       age_spouse: profile.married ? 35 : null,
       dependent_ages: profile.dependents,
       income: profile.income,
-      year: 2026,
+      year: CO_DASHBOARD_YEAR,
       max_earnings: exampleMaxEarnings,
-      state_code: 'GA',
+      state_code: 'CO',
     });
     setPrecomputedImpact(response);
     setTriggered(true);
@@ -365,7 +374,7 @@ function HouseholdImpactTab() {
       {triggered && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
           <span>Chart x-axis max:</span>
-          {[100000, 200000, 500000, 1000000].map((v) => (
+          {[100000, 250000, 600000, CO_SWEEP_MAX].map((v) => (
             <button
               key={v}
               onClick={() => {
@@ -400,7 +409,7 @@ function HouseholdImpactTab() {
 }
 
 /** Statewide impact tab */
-function NationalImpactTab() {
+function StatewideImpactTab() {
   return (
     <div className="space-y-6">
       <AggregateImpact triggered={true} />

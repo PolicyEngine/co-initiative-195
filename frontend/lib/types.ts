@@ -17,38 +17,6 @@ export interface BenefitAtIncome {
   net_income_change: number;
 }
 
-export type ProvisionKey =
-  | 'flat_rate'
-  | 'standard_deduction'
-  | 'dependent_exemption'
-  | 'retirement_exclusion'
-  | 'overtime_exclusion'
-  | 'tip_exclusion';
-
-export interface ProvisionPointImpact {
-  net_income_change: number;
-  state_tax_change?: number;
-  federal_tax_change?: number;
-}
-
-export interface ProvisionChartImpact {
-  net_income_change: number[];
-  state_tax_change?: number[];
-  federal_tax_change?: number[];
-}
-
-export type ProvisionsAtIncome = {
-  [K in ProvisionKey]: ProvisionPointImpact;
-} & {
-  interaction_residual?: ProvisionPointImpact;
-};
-
-export type ProvisionsChart = {
-  [K in ProvisionKey]: ProvisionChartImpact;
-} & {
-  interaction_residual?: ProvisionChartImpact;
-};
-
 export interface HouseholdImpactResponse {
   income_range: number[];
   net_income_change: number[];
@@ -57,9 +25,6 @@ export interface HouseholdImpactResponse {
   netIncomeChange: number[];
   benefit_at_income: BenefitAtIncome;
   x_axis_max: number;
-  /** Per-provision attribution (only present for precomputed examples). */
-  provisions?: ProvisionsAtIncome;
-  provisions_chart?: ProvisionsChart;
 }
 
 export interface IncomeBracket {

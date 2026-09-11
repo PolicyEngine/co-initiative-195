@@ -14,7 +14,7 @@ export interface HashParams {
   age?: number;
   married?: boolean;
   dependents?: number[];
-  tab?: 'policy' | 'impact' | 'aggregate';
+  tab?: 'overview' | 'household' | 'statewide' | 'districts' | 'validation';
 }
 
 /**
@@ -57,7 +57,13 @@ export function parseHashParams(hash: string = ''): HashParams {
   }
 
   const tab = searchParams.get('tab');
-  if (tab === 'policy' || tab === 'impact' || tab === 'aggregate') {
+  if (
+    tab === 'overview' ||
+    tab === 'household' ||
+    tab === 'statewide' ||
+    tab === 'districts' ||
+    tab === 'validation'
+  ) {
     params.tab = tab;
   }
 
@@ -157,7 +163,7 @@ export function sendMessageToParent(type: string, data: Record<string, unknown> 
  * Notify parent that the dashboard is ready
  */
 export function notifyReady(): void {
-  sendMessageToParent('ready', { source: 'working-parents-tax-relief-act' });
+  sendMessageToParent('ready', { source: 'co-initiative-195' });
 }
 
 /**

@@ -1,59 +1,36 @@
 /**
  * Build a PolicyEngine household situation for the PE API.
  *
- * For the Georgia 2026 Tax Changes (HB463) dashboard:
- * - The PolicyEngine baseline represents 2026 Georgia law (HB463 already applied).
- * - The "reform" reverts Georgia parameters to their pre-HB463 values so the
- *   dashboard can measure the impact of HB463 as
- *   (current law baseline) minus (pre-HB463 reform).
+ * For the Colorado Initiative 195 (Amendment 87) dashboard:
+ * - The PolicyEngine baseline represents current law (Colorado's 4.4%
+ *   flat income tax).
+ * - The reform activates the contributed graduated-bracket schedule
+ *   (policyengine-us PR #9431) via a single parameter switch.
+ * - Sign convention everywhere: impact = reform - baseline. A negative
+ *   net-income change means the household pays more tax under the
+ *   graduated schedule.
  */
 
 import type { HouseholdRequest } from "./types";
 
 const GROUP_UNITS = ["families", "spm_units", "tax_units", "households"] as const;
 
+/** Tax year the dashboard models (Initiative 195 takes effect TY 2027). */
+export const CO_DASHBOARD_YEAR = 2027;
+
+/** Default top of the income sweep — past the $1,000,000 bracket
+ *  threshold so all six brackets are visible. */
+export const CO_SWEEP_MAX = 1_300_000;
+
 /**
- * Revert Georgia's HB463 tax parameters to pre-HB463 values.
- * Inline copy of /reform_revert.json so the policy ships with the bundle.
- *
- * Period notes:
- * - Flat rate, standard deduction, dependent exemption revert from 2026
- *   forward (HB463 set permanent levels effective TY 2026).
- * - Overtime / tip exclusions self-repeal end of TY 2028, so the revert
- *   is only applied for TY 2026-2028.
- * - The retirement-exclusion bump (older cap $65,000 -> $70,000) takes
- *   effect TY 2027, so the revert applies from TY 2027 forward.
+ * Reform policy: turn on the contributed Colorado graduated income tax
+ * (six brackets: 3.7% / 4.2% / 4.4% / 7.4% / 7.9% / 8.4% at
+ * $0 / $25k / $100k / $500k / $750k / $1M), effective tax year 2027.
+ * The PolicyEngine API applies this as a reform on top of current law.
  */
 const REFORM_POLICY: Record<string, Record<string, number | boolean>> = {
-  "gov.states.ga.tax.income.main.flat_rate": {
-    "2026-01-01.2100-12-31": 0.0519,
-  },
-  "gov.states.ga.tax.income.deductions.standard.amount.JOINT": {
-    "2026-01-01.2100-12-31": 24000,
-  },
-  "gov.states.ga.tax.income.deductions.standard.amount.SURVIVING_SPOUSE": {
-    "2026-01-01.2100-12-31": 24000,
-  },
-  "gov.states.ga.tax.income.deductions.standard.amount.SINGLE": {
-    "2026-01-01.2100-12-31": 12000,
-  },
-  "gov.states.ga.tax.income.deductions.standard.amount.HEAD_OF_HOUSEHOLD": {
-    "2026-01-01.2100-12-31": 12000,
-  },
-  "gov.states.ga.tax.income.deductions.standard.amount.SEPARATE": {
-    "2026-01-01.2100-12-31": 12000,
-  },
-  "gov.states.ga.tax.income.exemptions.dependent": {
-    "2026-01-01.2100-12-31": 4000,
-  },
-  "gov.states.ga.tax.income.agi.exclusions.retirement.cap.older": {
-    "2027-01-01.2100-12-31": 65000,
-  },
-  "gov.states.ga.tax.income.agi.exclusions.overtime.cap": {
-    "2026-01-01.2028-12-31": 0,
-  },
-  "gov.states.ga.tax.income.agi.exclusions.tips.cap": {
-    "2026-01-01.2028-12-31": 0,
+  "gov.contrib.states.co.progressive_income_tax.in_effect": {
+    "2027-01-01.2100-12-31": true,
   },
 };
 
@@ -80,7 +57,7 @@ export function buildHouseholdSituation(
     max_earnings,
     state_code,
   } = params;
-  const effectiveStateCode = state_code || "GA";
+  const effectiveStateCode = state_code || "CO";
   const yearStr = String(year);
   const axisMax = Math.max(max_earnings, income);
 
@@ -99,7 +76,7 @@ export function buildHouseholdSituation(
         members: ["you"],
         adjusted_gross_income: { [yearStr]: null },
         income_tax: { [yearStr]: null },
-        ga_income_tax: { [yearStr]: null },
+        co_income_tax: { [yearStr]: null },
       },
     },
     households: {
@@ -152,9 +129,8 @@ export function buildHouseholdSituation(
 }
 
 /**
- * Build the Georgia HB463 inverse reform policy dict for the PE API.
- * Reverts Georgia to pre-HB463 values so the dashboard can compute:
- *   impact = current-law baseline - pre-HB463 reform
+ * Build the Initiative 195 reform policy dict for the PE API.
+ * The dashboard computes: impact = reform - baseline (current law).
  */
 export function buildReformPolicy(): Record<string, Record<string, number | boolean>> {
   return REFORM_POLICY;

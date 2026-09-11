@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  useAggregateImpact,
-  GA_DASHBOARD_YEAR,
-} from '@/hooks/useAggregateImpact';
+import { useAggregateImpact } from '@/hooks/useAggregateImpact';
+import { CO_DASHBOARD_YEAR } from '@/lib/household';
 import {
   BarChart,
   Bar,
@@ -65,14 +63,10 @@ interface Props {
   triggered: boolean;
 }
 
-// Statewide aggregates are precomputed for TY 2026 (rate cut + SD +
-// dep exemption + overtime/tip exclusions) and TY 2027 (the
-// retirement-exclusion bump). TY 2028 isn't surfaced statewide.
-const GA_YEARS = [2026, 2027] as const;
-type GAYear = (typeof GA_YEARS)[number];
-
+// Statewide aggregates are precomputed for TY 2027 only — the first
+// year the Initiative 195 graduated schedule would apply.
 export default function AggregateImpact({ triggered }: Props) {
-  const [selectedYear, setSelectedYear] = useState<GAYear>(GA_DASHBOARD_YEAR as GAYear);
+  const selectedYear = CO_DASHBOARD_YEAR;
   const { data, isLoading, error } = useAggregateImpact(triggered, selectedYear);
   const [activeSection, setActiveSection] = useState<
     'fiscal' | 'distributional' | 'winners' | 'poverty'
@@ -86,7 +80,7 @@ export default function AggregateImpact({ triggered }: Props) {
       <div className="flex items-center justify-center py-20">
         <div className="text-center">
           <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-          <p className="mt-4 text-gray-600">Loading Georgia impact data...</p>
+          <p className="mt-4 text-gray-600">Loading Colorado statewide data...</p>
         </div>
       </div>
     );
@@ -96,12 +90,12 @@ export default function AggregateImpact({ triggered }: Props) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-        <h3 className="text-gray-800 font-semibold mb-2">Georgia impact data not yet available</h3>
+        <h3 className="text-gray-800 font-semibold mb-2">Statewide impact data not yet available</h3>
         <p className="text-gray-600 font-medium mb-2">{errorMessage}</p>
         <p className="text-sm text-gray-500 mt-4">
           Precomputed data has not been generated yet. Run the Modal
-          precompute (<code>modal run scripts/modal_pipeline.py</code>) once
-          policyengine-us PR #8306 is published to PyPI.
+          precompute (<code>modal run scripts/modal_pipeline.py</code>) to
+          populate the CSVs in <code>frontend/public/data/</code>.
         </p>
       </div>
     );
@@ -134,30 +128,13 @@ export default function AggregateImpact({ triggered }: Props) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-primary">Georgia impact analysis</h2>
+      <h2 className="text-2xl font-bold text-primary">Colorado statewide impact</h2>
       <p className="text-sm text-gray-600">
-        Comparing current law ({selectedYear}, HB463) to pre-HB463 baseline
+        Estimated impact of the Initiative 195 graduated schedule (reform)
+        relative to current law (4.4% flat tax) in tax year {selectedYear}.
+        All impacts are reform minus baseline: a negative household figure
+        indicates a net-income decrease.
       </p>
-
-      {/* Year selector — HB463 spans TY 2026-2028. Retirement-exclusion
-          bump starts TY 2027; overtime/tip exclusions sunset end of
-          TY 2028. */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm text-gray-700 font-medium">Tax year:</span>
-        {GA_YEARS.map((year) => (
-          <button
-            key={year}
-            onClick={() => setSelectedYear(year)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              selectedYear === year
-                ? 'bg-primary-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            {year}
-          </button>
-        ))}
-      </div>
 
       {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">
@@ -182,20 +159,20 @@ export default function AggregateImpact({ triggered }: Props) {
           {/* Selected year impact - 3 cards */}
           <div>
             <h3 className="text-lg font-semibold text-gray-800 mb-3">
-              Georgia state revenue change ({selectedYear})
+              Revenue and household impact ({selectedYear})
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className={`rounded-lg p-5 border ${
                 data.budget.state_tax_revenue_impact >= 0 ? 'bg-green-50 border-success' : 'bg-red-50 border-red-300'
               }`}>
-                <p className="text-sm text-gray-700 mb-2">Georgia state revenue change</p>
+                <p className="text-sm text-gray-700 mb-2">Colorado state revenue change</p>
                 <p className={`text-2xl font-bold ${
                   data.budget.state_tax_revenue_impact >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {formatBillions(data.budget.state_tax_revenue_impact)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Change in Georgia state tax collections
+                  Change in Colorado state tax collections
                 </p>
               </div>
               <div className={`rounded-lg p-5 border ${
@@ -221,7 +198,7 @@ export default function AggregateImpact({ triggered }: Props) {
                   {formatBillions(data.total_cost)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Net gain to Georgia households
+                  Net change in Colorado household net income
                 </p>
               </div>
             </div>
@@ -229,13 +206,13 @@ export default function AggregateImpact({ triggered }: Props) {
 
           {/* Income bracket table */}
           <div>
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Impact by income bracket</h3>
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Impact by income band</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-300">
-                    <th className="text-left px-4 py-3 font-medium text-gray-900">Income bracket</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-900">Affected tax units</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-900">Income band</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-900">Households gaining</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-900">Total impact</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-900">Average impact</th>
                   </tr>
@@ -259,7 +236,11 @@ export default function AggregateImpact({ triggered }: Props) {
               </table>
             </div>
             <p className="text-xs text-gray-500 mt-3 italic">
-              Income brackets use an expanded income measure at the tax unit level, following JCT methodology. Expanded income includes AGI plus tax-exempt interest, employer payroll taxes, workers&apos; compensation, nontaxable Social Security benefits, and foreign earned income exclusion. A tax unit is the unit that files a tax return (single filer or married couple filing jointly).
+              Income bands use baseline household adjusted gross income.
+              &quot;Households gaining&quot; counts households whose net income
+              rises; &quot;Total impact&quot; and &quot;Average impact&quot;
+              cover all households in the band, so a negative value indicates
+              the band pays more tax in aggregate.
             </p>
           </div>
         </div>
@@ -468,9 +449,9 @@ export default function AggregateImpact({ triggered }: Props) {
           return 10 * mag;
         })();
         const povNiceMax = Math.ceil(povMaxAbs / povNiceStep) * povNiceStep;
-        // Collapse the y-axis to the side the data actually occupies.
-        // HB463 reduces poverty, so all four bars go negative and the
-        // top half of a symmetric axis is dead space.
+        // Collapse the y-axis to the side the data actually occupies —
+        // if all four poverty bars share a sign, half of a symmetric
+        // axis is dead space.
         const hasPositive = povertyData.some((d) => d.value > 0);
         const hasNegative = povertyData.some((d) => d.value < 0);
         const povDomain: [number, number] = hasPositive && !hasNegative
@@ -491,7 +472,7 @@ export default function AggregateImpact({ triggered }: Props) {
                 Change in poverty rates (%)
               </h3>
               <p className="text-gray-700 mb-3">
-                Percent change from pre-HB463 law in Supplemental Poverty Measure rates.
+                Percent change from current law in Supplemental Poverty Measure rates.
               </p>
               <ResponsiveContainer width="100%" height={360}>
                 <BarChart data={povertyData} margin={CHART_MARGIN}>
