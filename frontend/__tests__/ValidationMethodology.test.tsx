@@ -55,7 +55,22 @@ describe('ValidationMethodology', () => {
       screen.getByText('Corporate and TABOR sections out of scope')
     ).toBeInTheDocument();
     expect(
-      screen.getByText('District files calibrated independently')
+      screen.getByText('District geography is PUMA-based')
+    ).toBeInTheDocument();
+  });
+
+  it('names the Populace build P ACS-local dataset revision', () => {
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ValidationMethodology />
+      </QueryClientProvider>
+    );
+    expect(
+      screen.getByText('populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('populace_us_2024_acs_local.h5')
     ).toBeInTheDocument();
   });
 

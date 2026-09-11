@@ -218,11 +218,11 @@ export default function CongressionalDistrictImpact({ year = CO_DASHBOARD_YEAR }
       {/* Methodology note */}
       <p className="text-xs text-gray-500">
         Winners are households whose net income rises, matching the statewide
-        tab. District estimates use PolicyEngine&apos;s district-calibrated
-        datasets (~9,000 households per district), from the same enhanced CPS
-        family as the statewide estimates. District figures may not exactly
-        aggregate to statewide figures because each district file is
-        calibrated independently.
+        tab. Statewide and district estimates come from the same single
+        calibrated national dataset (Populace build P ACS local-area), so
+        district totals sum to the statewide total up to rounding. Households
+        are assigned to districts via PUMA-based geography from the ACS
+        multispine, so district boundaries are approximate.
       </p>
     </div>
   );

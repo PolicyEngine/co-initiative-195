@@ -168,14 +168,15 @@ export default function ValidationMethodology() {
           </div>
           <div className="bg-amber-50 border-l-4 border-amber-400 rounded-lg p-5">
             <p className="text-sm font-bold text-gray-900 mb-2">
-              District files calibrated independently
+              District geography is PUMA-based
             </p>
             <p className="text-sm text-gray-700">
-              Each congressional-district dataset is calibrated
-              independently of the statewide dataset, so district figures may
-              not exactly aggregate to the statewide figures. Treat district
-              results as standalone estimates rather than an exact
-              decomposition of the statewide total.
+              Statewide and district figures come from the same single
+              calibrated national dataset, so district totals sum to the
+              statewide total up to rounding. Households are assigned to
+              congressional districts via PUMA-based geography from the ACS
+              multispine, which approximates district boundaries, so treat
+              the split across districts as approximate.
             </p>
           </div>
         </div>
@@ -193,12 +194,20 @@ export default function ValidationMethodology() {
               {MODEL_INFO.pin}
             </code>
             , the first release containing the contributed Initiative 195
-            rate schedule. Statewide results use PolicyEngine&apos;s
-            Colorado-calibrated enhanced CPS dataset
-            (states/CO.h5); district results use the eight
-            district-calibrated datasets (districts/CO-01.h5 through
-            CO-08.h5, ~9,000 households each) from the same enhanced CPS
-            family.
+            rate schedule. Statewide and district results both come from a
+            single calibrated national dataset: Populace build P ACS
+            local-area (
+            <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+              populace_us_2024_acs_local.h5
+            </code>
+            , revision{' '}
+            <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+              populace-us-2024-buildp-acs-local-592ae5d6-20260819T020303Z
+            </code>
+            , ~1.6M households with PUMA-assigned 119th-Congress districts).
+            Statewide figures filter to Colorado (state FIPS 08); district
+            figures group the same file by congressional-district geoid
+            (801&ndash;808).
           </p>
           <p>
             <strong>Reform definition.</strong> The baseline is current law
