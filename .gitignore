@@ -20,3 +20,4 @@ node_modules/
 
 # Editor
 .DS_Store
+local_cache/
