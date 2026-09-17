@@ -38,14 +38,38 @@ const formatBillions = (value: number) => {
 export default function ValidationMethodology() {
   const { data } = useAggregateImpact(true, CO_DASHBOARD_YEAR);
 
-  // Model revenue = change in Colorado state tax collections under the
-  // reform (positive = revenue increase). Wired to metrics.csv; shows a
-  // pending state until the Modal precompute lands.
+  // Model revenue = change in Colorado state income-tax collections
+  // under the reform (positive = revenue increase). Wired to
+  // metrics.csv; shows a pending state until the Modal precompute lands.
   const modelRevenue = data?.budget?.state_tax_revenue_impact ?? null;
-  const diffVsOfficial =
-    modelRevenue !== null
-      ? (modelRevenue - OFFICIAL.fy2028FullYear) / OFFICIAL.fy2028FullYear
-      : null;
+
+  const comparisonRows = [
+    {
+      label: 'PolicyEngine household model, tax year 2027',
+      amount:
+        modelRevenue !== null ? formatBillions(modelRevenue) : 'Pending',
+      note: 'Individual income tax only; lower bound (see below)',
+      highlight: true,
+    },
+    {
+      label: 'Model, adjusted for SOI top-tail coverage',
+      amount: '≈$1.9B',
+      note: "Scales the model's upper-bracket revenue by the IRS SOI income coverage ratio",
+      highlight: false,
+    },
+    {
+      label: 'LCS estimate, tax year 2027 annualized',
+      amount: '≈$1.93B',
+      note: '2 × the FY 2026-27 half-year figure; includes individual and corporate taxpayers',
+      highlight: false,
+    },
+    {
+      label: 'LCS estimate, FY 2027-28',
+      amount: '$1,981.1M',
+      note: 'First full fiscal year; includes individual and corporate taxpayers',
+      highlight: false,
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -55,77 +79,79 @@ export default function ValidationMethodology() {
           Model estimate vs. official fiscal impact statement
         </h2>
         <p className="text-gray-700 mb-6">
-          Colorado&apos;s Legislative Council Staff published a fiscal impact
-          statement for Initiative 195 estimating the state revenue increase
-          from the graduated schedule. The comparison below places the
-          model&apos;s tax year {CO_DASHBOARD_YEAR} estimate next to the
-          official figures.
+          Colorado&apos;s Legislative Council Staff (LCS) fiscal impact
+          statement estimates the measure raises state revenue by $963.2
+          million in FY 2026-27 (a half-year impact of tax year 2027) and
+          $1,981.1 million in FY 2027-28, with a TABOR-required maximum of
+          $2.7 billion; the added revenue is exempt from TABOR as a
+          voter-approved revenue change. The model&apos;s tax year{' '}
+          {CO_DASHBOARD_YEAR} estimate sits below the LCS figures for
+          quantifiable reasons decomposed below.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">
-              Official estimate (Legislative Council Staff)
-            </p>
-            <p className="text-sm text-gray-500">
-              State revenue increase, FY 2027-28 (first full fiscal year)
-            </p>
-            <p className="text-3xl font-bold text-gray-900 tabular-nums mb-3">
-              {formatBillions(OFFICIAL.fy2028FullYear)}
-            </p>
-            <p className="text-sm text-gray-500">
-              FY 2026-27 (half-year of tax year 2027)
-            </p>
-            <p className="text-2xl font-bold text-gray-900 tabular-nums mb-3">
-              {formatBillions(OFFICIAL.fy2027HalfYear)}
-            </p>
-            <p className="text-xs text-gray-500">
-              The statement also reports a maximum dollar change of{' '}
-              {formatBillions(OFFICIAL.maxDollarChange)} in FY 2027-28 and
-              notes the increased revenue is exempt from TABOR as a
-              voter-approved revenue change.
-            </p>
-          </div>
-
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">
-              PolicyEngine model
-            </p>
-            <p className="text-sm text-gray-500">
-              Colorado income-tax revenue change, tax year {CO_DASHBOARD_YEAR}
-            </p>
-            {modelRevenue !== null ? (
-              <>
-                <p className="text-3xl font-bold text-primary-600 tabular-nums mb-3">
-                  {formatBillions(modelRevenue)}
-                </p>
-                {diffVsOfficial !== null && (
-                  <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-primary-100 text-primary-700 tabular-nums">
-                    {diffVsOfficial >= 0 ? '+' : '−'}
-                    {Math.abs(diffVsOfficial * 100).toFixed(1)}% vs. FY 2027-28
-                    official estimate
-                  </span>
-                )}
-              </>
-            ) : (
-              <p className="text-lg font-semibold text-gray-400 mb-3">
-                Pending — populated from metrics.csv once the Modal
-                precompute has run
-              </p>
-            )}
-          </div>
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th className="text-left px-4 py-3 font-medium text-gray-900">Estimate</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-900">Revenue increase</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-900">Basis</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {comparisonRows.map((row) => (
+                <tr key={row.label} className={row.highlight ? 'bg-primary-50' : ''}>
+                  <td className="px-4 py-3 text-gray-900">{row.label}</td>
+                  <td
+                    className={`px-4 py-3 text-right font-semibold tabular-nums ${
+                      row.amount === 'Pending'
+                        ? 'text-gray-400'
+                        : row.highlight
+                          ? 'text-primary-600'
+                          : 'text-gray-900'
+                    }`}
+                  >
+                    {row.amount}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{row.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        <p className="text-sm text-gray-600 mt-3">
-          The two figures use different accounting periods: the model
-          estimates calendar tax year {CO_DASHBOARD_YEAR} liability, while the
-          official estimate is stated by state fiscal year (July&ndash;June),
-          with FY 2027-28 the first full fiscal year of collections. The
-          official estimate also excludes the effects of 2025 H.R. 1 (the
-          &quot;One Big Beautiful Bill Act&quot;), which the fiscal impact
-          statement notes it could not incorporate, while the PolicyEngine
-          baseline includes it. Differences of this scale in comparison
-          period and baseline mean an exact match is not expected.
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-4">
+          <p className="text-sm font-semibold text-gray-900 mb-2">
+            Why the model figure is a lower bound on the individual side
+          </p>
+          <p className="text-sm text-gray-700 mb-2">
+            The microdata&apos;s Colorado income distribution matches IRS SOI
+            actuals on filer counts at high incomes — it carries 184% of
+            SOI&apos;s count of returns with AGI over $1 million — but
+            truncates income per filer: mean AGI in the $1M+ band is $1.27
+            million in the model vs. $3.03 million in SOI (tax year 2023).
+            Income mass above the $1 million threshold, which the top 8.4%
+            bracket taxes, is $7.8 billion in the model vs. $31.7 billion in
+            SOI — 24% coverage.
+          </p>
+          <p className="text-sm text-gray-700">
+            Scaling the model&apos;s upper-bracket revenue by the SOI
+            coverage ratio yields approximately $1.9 billion, within 5% of
+            the LCS annualized estimate.
+          </p>
+        </div>
+
+        <p className="text-sm text-gray-600">
+          <strong>Scope and baseline differences.</strong> The LCS estimate
+          covers both individual and corporate taxpayers — Section 4 of the
+          measure applies the same rate schedule to C corporations, which is
+          outside this household model&apos;s scope — and LCS publishes no
+          individual/corporate split. Additional smaller differences: the
+          LCS baseline excludes 2025 H.R. 1 (the &quot;One Big Beautiful
+          Bill Act&quot;), which this model&apos;s baseline includes; the
+          model is stated by tax year while the LCS figures are stated by
+          state fiscal year; and both estimates are static, with no
+          behavioral response.
         </p>
       </section>
 
@@ -163,7 +189,8 @@ export default function ValidationMethodology() {
               and its TABOR / Colorado&apos;s Future Fund revenue-allocation
               accounting (Section 5) fall outside the household model&apos;s
               scope. All figures here cover the individual income-tax
-              schedule only.
+              schedule only, while the LCS estimate includes both individual
+              and corporate taxpayers.
             </p>
           </div>
           <div className="bg-amber-50 border-l-4 border-amber-400 rounded-lg p-5">
@@ -221,6 +248,25 @@ export default function ValidationMethodology() {
             baseline for tax year {CO_DASHBOARD_YEAR}: positive state revenue
             changes are revenue increases, and negative household net-income
             changes are tax increases.
+          </p>
+          <p>
+            <strong>Calibration coverage.</strong> The dataset calibrates
+            Colorado aggregates tightly — total AGI is within +0.12% and
+            total taxable income within &minus;0.10% of IRS SOI targets —
+            but the calibration includes no income-amount targets above
+            $500,000, so the top tail is uncalibrated in exactly the region
+            the new 7.4%, 7.9%, and 8.4% brackets tax. This is the root
+            cause of the lower-bound behavior quantified above. Per-target
+            diagnostics are published on the{' '}
+            <a
+              href="https://calibration-diagnostics.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary-600 hover:text-primary-700 underline"
+            >
+              calibration diagnostics dashboard
+            </a>
+            .
           </p>
           <p>
             <strong>Static estimate.</strong> No behavioral response is

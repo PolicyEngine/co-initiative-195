@@ -20,17 +20,34 @@ describe('ValidationMethodology', () => {
     ) as typeof fetch;
   });
 
-  it('shows the official LCS estimate', () => {
+  it('shows the four-row model-vs-official comparison', () => {
     const queryClient = createTestQueryClient();
     render(
       <QueryClientProvider client={queryClient}>
         <ValidationMethodology />
       </QueryClientProvider>
     );
-    // FY 2027-28 full-year figure: $1,981.1M -> $1.98B
-    expect(screen.getByText('$1.98B')).toBeInTheDocument();
-    // FY 2026-27 half-year figure: $963.2M -> $963M
-    expect(screen.getByText('$963M')).toBeInTheDocument();
+    // LCS FY 2027-28 full-year figure
+    expect(screen.getByText('$1,981.1M')).toBeInTheDocument();
+    // LCS TY2027 annualized (2 x FY 2026-27 half-year)
+    expect(screen.getByText('≈$1.93B')).toBeInTheDocument();
+    // SOI-coverage-adjusted model estimate
+    expect(screen.getByText('≈$1.9B')).toBeInTheDocument();
+  });
+
+  it('quantifies the top-tail attribution', () => {
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ValidationMethodology />
+      </QueryClientProvider>
+    );
+    expect(
+      screen.getByText('Why the model figure is a lower bound on the individual side')
+    ).toBeInTheDocument();
+    // SOI income-mass coverage above the $1M threshold
+    expect(screen.getByText(/24% coverage/)).toBeInTheDocument();
+    expect(screen.getByText(/\$31\.7 billion/)).toBeInTheDocument();
   });
 
   it('shows a pending placeholder for the model revenue before the precompute runs', () => {
@@ -88,6 +105,7 @@ describe('ValidationMethodology', () => {
       'https://www.sos.state.co.us/pubs/elections/Initiatives/titleBoard/filings/2025-2026/195Final.pdf'
     );
     expect(hrefs).toContain('https://github.com/PolicyEngine/policyengine-us/pull/9431');
+    expect(hrefs).toContain('https://calibration-diagnostics.vercel.app');
   });
 
   it('documents the reform parameter and pin', () => {
